@@ -1,0 +1,11 @@
+.env
+host/.env
+host/cache/
+.venv/
+__pycache__/
+*.pyc
+build/*
+!build/nu40_commute/
+build/nu40_commute/*
+!build/nu40_commute/nu40_commute.uf2
+tools/preview/line.png
