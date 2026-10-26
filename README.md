@@ -1,5 +1,185 @@
 # NU40 DK + OLED 퇴근 알림 보드
 
+> **English readers:** the next section is a complete English quick start. The Korean sections below it go deeper
+> (wiring, screen layout, serial protocol, Seoul API details) and are the original documentation.
+
+## English quick start — "leave now for your train" desk board
+
+A tiny desk board for people who commute by train. A Python script on your PC works out **the next train you can still
+catch** (train time − walk time − buffer), and an **NU40 DK (nRF52840) + 0.96" SSD1306 OLED** on your desk shows a
+pixel train rolling toward the station with a message: *Plenty of time → Start packing → Leave now! → Missed it... next one!*
+
+```
+train times ──▶ PC (python host/commute.py) ──USB serial──▶ NU40 DK ──I2C──▶ OLED
+ (times | gtfs | seoul)   picks the train, decides the state        draws, animates, buttons
+```
+
+![English screens](tools/preview/en_all.png)
+
+| State | When (time left until you must leave) | On screen | Board |
+|---|---|---|---|
+| relax | more than 3 min | `Plenty of time` | |
+| pack | 3 min or less | `Start packing` | |
+| go | 1 min or less | `Leave now!` | character hops, text blinks, LED1 on |
+| run | up to 2 min past the leave line | `Run, you'll make it!` | same as go |
+| missed | later than that | `Missed it... next one!` | held 5 s, then the next train |
+
+**Leave line = train time − WALK_MINUTES − BUFFER_MINUTES** (default 10 + 1 = 11 min before the train).
+The board has no WiFi, so the PC does all the thinking and the board only draws what it is told (it counts the
+seconds down by itself, so the animation stays smooth even though the PC sends an update every 5 s).
+
+### Where the train times come from (`TRAIN_SOURCE`)
+
+| Source | Needs | Good for |
+|---|---|---|
+| `times` (default) | nothing | Any line with a regular timetable. Type the departures or an interval. |
+| `gtfs` | your agency's GTFS static feed (a zip or folder) | Real timetables anywhere in the world, with weekday/weekend/holiday service. |
+| `seoul` | a Seoul Open Data API key | Seoul subway: official timetable + realtime delay correction (the original project). |
+
+The planner, the walk-time maths, the ON/OFF window and the buttons are shared by all three.
+
+### 1. Hardware
+
+| Part | Detail |
+|---|---|
+| Board | NUCODE **NU40 DK** (nRF52840, USB-C). Arduino board package **"NUBoards nRF52 by NUCODE"**, FQBN `nucode:nrf52:nu40dk` |
+| Display | SSD1306 128×64 OLED, I2C, address `0x3C` (falls back to `0x3D`) |
+
+| OLED pin | NU40 DK pin | USER TERMINAL # |
+|---|---|---|
+| SDA | **P0.26** | 25 |
+| SCL | **P0.27** | 26 |
+| VCC | **3V3** (not 5V) | 27 |
+| GND | **GND** | 24 |
+
+The on-board buttons (S1–S4) and LEDs (LED1–LED4) are used as they are; nothing else to wire.
+
+### 2. Install (once)
+
+1. Arduino IDE 2.x → Boards Manager → install **NUBoards nRF52 by NUCODE** → select **NU40DK nRF52840**.
+2. Library Manager → **Adafruit SSD1306** → *Install all* (pulls in Adafruit GFX and BusIO).
+3. Python 3.9+:
+   ```bash
+   cd nu40-commute
+   python3 -m venv .venv
+   .venv/bin/pip install -r host/requirements.txt      # pyserial, requests, Pillow
+   ```
+
+### 3. Flash the firmware
+
+- **Arduino IDE:** open `firmware/nu40_commute/nu40_commute.ino` (the folder, so `commute_font.h` comes along), pick the board and the
+  `/dev/cu.usbmodem…` / `COMx` port, **Upload**.
+- **No IDE:** double-tap RESET on the board → a `NRF52BOOT` drive appears → copy `build/nu40_commute/nu40_commute.uf2` onto it.
+
+The OLED shows `연결 대기 중… / Waiting for PC...` until the PC script connects. (The on-screen language is decided by the PC, so the
+boot screen shows both.)
+
+### 4. Configure
+
+```bash
+cp host/config.example.env host/.env     # then edit host/.env
+```
+
+**`times` — quick start (no API key, works anywhere):**
+
+```ini
+LANG=en
+TRAIN_SOURCE=times
+TRAIN_TIMES=18:02,18:12,18:22,18:32,18:42,18:52,19:02,19:22,19:42,20:02
+WALK_MINUTES=10
+BUFFER_MINUTES=1
+ON_AT=18:00
+OFF_AT=20:00
+```
+
+or an interval instead of (or in addition to) the list:
+
+```ini
+TRAIN_SOURCE=times
+TRAIN_EVERY=10          # a train every 10 minutes...
+TRAIN_FIRST=06:00       # ...from 06:00
+TRAIN_LAST=23:30        # ...to 23:30
+TRAIN_DAYS=mon-fri      # optional: mon-fri | weekdays | weekends | mon,wed,fri   (empty = every day)
+```
+
+**`gtfs` — real timetable from your transit agency:**
+
+```ini
+LANG=en
+TRAIN_SOURCE=gtfs
+GTFS_PATH=~/Downloads/my_agency_gtfs.zip     # the static GTFS zip, or the unzipped folder
+GTFS_STOP_ID=S1                              # your platform's stop_id (see --find-stop below)
+GTFS_DIRECTION_ID=0                          # optional: 0 or 1, the direction you ride
+#GTFS_ROUTE_ID=R1                            # optional: only this route (comma separated for several)
+#GTFS_HEADSIGN=Central                       # optional: only trips whose headsign contains this text
+```
+
+Find the feed by searching "*your agency* GTFS" (or https://mobilitydatabase.org), then find your stop id:
+
+```bash
+.venv/bin/python host/commute.py --find-stop "Central"     # prints matching GTFS_STOP_ID lines from stops.txt
+```
+
+Only today's service is used (`calendar.txt` + `calendar_dates.txt`), trips that end at your stop are skipped, and
+after-midnight times like `25:10:00` are handled. Big feeds (`stop_times.txt` of a few hundred MB) are read once at start.
+A small test feed lives in `samples/gtfs_sample/` (stop `S1`, direction `0`).
+
+**`seoul` — Seoul subway (original behaviour):** `TRAIN_SOURCE=seoul`, `SEOUL_SUBWAY_KEY=…`, plus `STATION_NAME`,
+`STATION_CODE`, `UPDN_LINE`, `LINE_HINT` — see section 4 (Korean) and `DATA_SOURCES.md`.
+
+Other keys: `LANG=en|ko` (screen text and log language), `SERIAL_PORT` (empty = auto-detect), `DEMO_SPEED`.
+
+### 5. Run
+
+```bash
+.venv/bin/python host/commute.py --demo --dry-run     # no board, no data: prints the serial lines of a fast demo
+.venv/bin/python host/commute.py --dry-run --always-on # your real source, still no board
+.venv/bin/python host/commute.py --demo                # board connected: 45-second demo loop (good for filming)
+.venv/bin/python host/commute.py                       # the real thing. Screen on between ON_AT and OFF_AT
+.venv/bin/python host/commute.py --always-on           # ignore the ON/OFF window
+.venv/bin/python host/commute.py --lang ko             # Korean screen text (overrides .env LANG)
+.venv/bin/python host/commute.py --source times        # override TRAIN_SOURCE for this run
+.venv/bin/python host/commute.py --render shot.png     # also save every screen as a PNG
+```
+
+`Ctrl+C` stops it. In `--dry-run` you can type `BTN|2` in the terminal to fake a button press.
+
+| Button / LED | Does |
+|---|---|
+| **S1** | Screen off → on after 10 s (LED4 blinks once); on → off immediately; press again during the countdown to cancel |
+| **S2** | Toggle demo ↔ live (needs a configured source) |
+| LED1 | On in the *Leave now!* / *Run* state |
+| LED2 | On in demo mode |
+
+### 6. Changing the English messages
+
+Edit `MESSAGES["en"]` / `NOTICES["en"]` in `host/commute.py`. The firmware font already contains every printable ASCII
+character, so any English text works without re-flashing — just keep the speech bubble text at **≤ 111 px** (about 18–22
+characters in this font) and the bottom line labels short enough to fit side by side. To check a line before sending it:
+
+```bash
+.venv/bin/python tools/preview/preview.py --line "S|go|700|1|18:09 train|Walk 10 min|Leave now!" --out x.png
+.venv/bin/python tools/preview/preview.py --lang en        # regenerate tools/preview/en_*.png and en_demo.gif
+```
+
+(Korean text is limited to the glyphs listed in `tools/make_commute_font.py`; see section 6 below.)
+
+### Files
+
+```
+host/commute.py                 PC side: train source → next catchable train → state → serial (en/ko)
+host/config.example.env         settings template (copy to host/.env)
+firmware/nu40_commute/          board firmware + generated font header (Korean glyphs + ASCII)
+tools/preview/preview.py        pixel-exact screen preview; en_*.png are the English screens
+tools/make_commute_font.py      font header generator (Galmuri9 pixel font)
+samples/gtfs_sample/            tiny GTFS feed for testing TRAIN_SOURCE=gtfs
+build/nu40_commute/*.uf2        pre-built firmware for drag-and-drop flashing
+```
+
+---
+
+## 한국어 설명
+
 서울시 지하철 API 로 **삼성역(2호선, 잠실 방면)** 열차 시각을 받아,
 "회사에서 **지금 나가면 탈 수 있는 열차**"를 골라 USB 로 연결된 **NU40 DK 보드의 0.96인치 OLED** 에 띄웁니다.
 열차가 레일 위를 달려 역으로 다가오고, 깃발(출발선)을 지나기 전에 캐릭터가 알려 줍니다.
@@ -9,15 +189,20 @@
  (시간표 + 실시간)            탈 열차 고르기 · 상태 판단                    그리기 · 애니메이션 · 버튼
 ```
 
-| 상태 | 조건 (나갈 때까지 남은 시간) | 화면 |
-|---|---|---|
-| 여유 | 3분 넘게 남음 | `아직 여유 있어요` |
-| 짐 싸기 | 3분 이하 | `슬슬 짐 싸야 해요` |
-| 출발 | 1분 이하 | `지금 출발해야 해요!` (캐릭터가 깡총, 글자 깜빡, LED1 켜짐) |
-| 놓침 | 지남 | `놓쳤어요… 다음 거!` 5초 → 다음 열차로 |
+| 상태 | 조건 (나갈 때까지 남은 시간) | 화면 (`LANG=ko`) | 화면 (`LANG=en`) |
+|---|---|---|---|
+| 여유 | 3분 넘게 남음 | `아직 여유 있어요` | `Plenty of time` |
+| 짐 싸기 | 3분 이하 | `슬슬 짐 싸야 해요` | `Start packing` |
+| 출발 | 1분 이하 | `지금 출발해야 해요!` (캐릭터가 깡총, 글자 깜빡, LED1 켜짐) | `Leave now!` |
+| 뛰면 가능 | 출발선 지나 2분까지 | `지금 뛰면 가능해요!` (보드엔 출발과 같게) | `Run, you'll make it!` |
+| 놓침 | 지남 | `놓쳤어요… 다음 거!` 5초 → 다음 열차로 | `Missed it... next one!` |
 
 **나갈 시각 = 열차 도착 − 도보 10분 − 여유 1분.**
 환승이 있어도 나갈 시각은 삼성역 열차만 보면 되므로 삼성역만 조회합니다.
+
+열차 시각은 `.env` 의 `TRAIN_SOURCE` 로 고릅니다 — `seoul`(서울시 API, 아래 설명) / `times`(고정 시각, 키 없이) /
+`gtfs`(해외 교통기관의 GTFS 피드). 기본값은 `times` 라서 **서울시 API 를 쓰려면 `TRAIN_SOURCE=seoul`, 한글 화면은 `LANG=ko`** 를
+`.env` 에 적어야 합니다. 탈 열차 고르기·상태·버튼은 세 공급원이 같습니다.
 
 ![화면 4종](tools/preview/all.png)
 
@@ -120,10 +305,17 @@ cp host/config.example.env host/.env
 
 | 항목 | 기본값 | 뜻 |
 |---|---|---|
-| `SEOUL_SUBWAY_KEY` | — | 서울 열린데이터광장 인증키. 데모만 쓸 땐 없어도 됨 |
+| `LANG` | `en` | 화면 문구·로그 언어. 한글은 `ko` (OS 환경변수가 아니라 `.env` 만 봄) |
+| `TRAIN_SOURCE` | `times` | 열차 시각 공급원 `times` / `gtfs` / `seoul`. 서울시 API 는 `seoul` |
+| `TRAIN_TIMES` | — | (times) 출발 시각 목록 `18:02,18:12,…` |
+| `TRAIN_EVERY` / `TRAIN_FIRST` / `TRAIN_LAST` | — / `05:00` / `23:59` | (times) N분 간격으로 시각 만들기 |
+| `TRAIN_DAYS` | (매일) | (times) 운행 요일 `mon-fri`, `weekdays`, `weekends`, `mon,wed,fri` |
+| `GTFS_PATH` / `GTFS_STOP_ID` | — | (gtfs) 피드 폴더나 zip / 정류장 stop_id (`--find-stop 이름` 으로 찾기) |
+| `GTFS_ROUTE_ID` / `GTFS_DIRECTION_ID` / `GTFS_HEADSIGN` | — | (gtfs) 선택 필터: 노선 / 방향(0·1) / 행선지 글자 |
+| `SEOUL_SUBWAY_KEY` | — | (seoul) 서울 열린데이터광장 인증키. 데모만 쓸 땐 없어도 됨 |
 | `SERIAL_PORT` | (자동) | `/dev/cu.usbmodem1101`, `COM3` |
-| `STATION_NAME` / `STATION_CODE` | `삼성` / `0219` | 실시간 조회 역명 / 시간표 역코드 |
-| `UPDN_LINE` / `LINE_HINT` | `외선` / `종합운동장방면` | 방면 고르기 (잠실 방면) |
+| `STATION_NAME` / `STATION_CODE` | `삼성` / `0219` | (seoul) 실시간 조회 역명 / 시간표 역코드 |
+| `UPDN_LINE` / `LINE_HINT` | `외선` / `종합운동장방면` | (seoul) 방면 고르기 (잠실 방면) |
 | `WALK_MINUTES` / `BUFFER_MINUTES` | `10` / `1` | 회사→역 도보, 여유. 출발선 = 도착 − (도보+여유) |
 | `ON_AT` / `OFF_AT` | `18:00` / `20:00` | 화면 자동 켜짐·꺼짐 시각. 밖에선 API 도 안 부름. 둘 다 비우면 항상 켬 |
 | `REALTIME_POLL_SECONDS` | `60` | 실시간 호출 간격 (최소 30) |
@@ -159,6 +351,9 @@ cd ~/nu40-commute
 |---|---|
 | `--demo` | 가짜 시계(오늘 17:53 부터 8배속)와 가짜 시간표(18:09 부터 3분 30초 간격). 여유 15초 → 짐 싸기 16초 → 출발 8초 → 놓침 5초 → 다음 열차 |
 | `--demo-speed N` | 데모 배속 바꾸기 |
+| `--lang ko\|en` | 화면 언어 (`.env` 의 `LANG` 보다 우선) |
+| `--source times\|gtfs\|seoul` | 열차 시각 공급원 (`.env` 의 `TRAIN_SOURCE` 보다 우선) |
+| `--find-stop TEXT` | GTFS `stops.txt` 에서 이름에 TEXT 가 든 정류장의 stop_id 를 찍고 종료 |
 | `--dry-run` | 보드 없이. 시리얼로 보낼 줄을 `>> ` 로 출력 |
 | `--port` | 시리얼 포트 직접 지정 |
 | `--start-after N` | 시작 후 N초 동안 화면을 꺼 뒀다가 켬 |
@@ -212,16 +407,19 @@ cd ~/nu40-commute
 스프라이트 비트와 `x_at()` 정수식까지 같습니다. 디자인을 고칠 땐 두 파일을 같이 고치세요.
 
 ```bash
-.venv/bin/python tools/preview/preview.py                    # 시안 4장 + all.png + demo.gif 다시 만들기
+.venv/bin/python tools/preview/preview.py                    # 시안 4장 + all.png + demo.gif (한글), en_*.png + en_demo.gif (영어), 0_boot.png
+.venv/bin/python tools/preview/preview.py --lang en          # 영어 세트만
 .venv/bin/python tools/preview/preview.py --check-font       # 펌웨어 글꼴이 시안 렌더링과 같은지 검사
 .venv/bin/python tools/preview/preview.py --line "S|go|700|1|18:09 열차 타기|도보10분|지금 출발해야 해요!" --out x.png
 ```
 
 ### 글꼴
 
-갈무리9(Galmuri9) 픽셀 글꼴. 티커는 한글 2350자를 통째로 넣었지만, 이 보드는 **화면에 나오는 글자만**
-(한글 + 숫자 + 기호 67자, 약 1.8KB) 넣습니다. 숫자·기호도 갈무리9라서 시안과 모양이 같습니다.
-글자마다 폭이 달라(`1` 은 4픽셀, `4` 는 7픽셀) 폭·위치를 따로 저장합니다.
+갈무리9(Galmuri9) 픽셀 글꼴. 티커는 한글 2350자를 통째로 넣었지만, 이 보드는 **화면에 나오는 한글만** 넣고,
+영어 모드(`LANG=en`)를 위해 **출력 가능한 ASCII 전부(0x20~0x7E)** 를 더해 152자, 약 3.9KB 입니다.
+숫자·기호·영문도 갈무리9라서 시안과 모양이 같습니다. 글자마다 폭이 달라(`1` 은 4픽셀, `4` 는 7픽셀) 폭·위치를 따로 저장합니다.
+영어 문구는 글꼴에 다 있으니 `host/commute.py` 의 `MESSAGES["en"]` 만 고치면 되고(펌웨어 재굽기 불필요, 말풍선 폭 111픽셀 안에),
+한글 문구를 바꿀 땐 아래처럼 글꼴을 다시 만들어야 합니다.
 
 ```bash
 .venv/bin/python tools/make_commute_font.py                  # → firmware/nu40_commute/commute_font.h
@@ -243,7 +441,7 @@ PC 가 상태와 문구를 정하고, 보드는 그리기만 합니다.
 | 줄 | 뜻 |
 |---|---|
 | `S\|<state>\|<arrive_s>\|<speed>\|<bottom_left>\|<bottom_right>\|<msg>` | 화면 상태. `state` = `relax`/`pack`/`go`/`missed`, `arrive_s` = 열차 도착까지 남은 초(음수 가능), `speed` = 보드가 초를 깎는 배속(실시간 1, 데모 8), `bottom_left` = `18:09 열차 타기`, `bottom_right` = `도보10분`, `msg` = 말풍선 문구 |
-| `N\|<text>` | 안내 화면 (글자 한 줄 가운데). `연결 대기 중…`, `시간표 받는 중…`, `열차 정보 없음`, `오류… 다시 시도 중`, `퇴근 시간 아님` |
+| `N\|<text>` | 안내 화면 (글자 한 줄 가운데). `연결 대기 중…`, `시간표 받는 중…`, `열차 정보 없음`, `오류… 다시 시도 중`, `퇴근 시간 아님` (영어: `Waiting for PC...`, `Loading timetable...`, `No trains found`, `Error, retrying...`, `Off hours`) |
 | `P\|on` / `P\|off` | 화면 켜기/끄기 (OLED 자체를 재움. 카운트다운은 계속) |
 | `M\|demo` / `M\|live` | 모드 표시 (LED2) |
 
@@ -254,7 +452,7 @@ PC 는 상태·문구가 바뀌면 즉시, 아니면 5초(데모 2초)마다 다
 
 | 줄 | 뜻 |
 |---|---|
-| `READY` | 부팅 완료. PC 는 전원·모드·현재 장면을 다시 보냅니다 |
+| `READY` | 부팅 완료. PC 는 전원·모드·현재 장면을 다시 보냅니다. 부팅 직후 화면은 `연결 대기 중… / Waiting for PC...` 두 줄 (언어는 PC 가 정하므로 둘 다) |
 | `BTN\|<n>` | 버튼 n(1~4) 눌림 |
 | `PWR\|arming` / `PWR\|cancel` | S1 을 눌러 10초 카운트 시작 / 취소 |
 | `PWR\|on` / `PWR\|off` | 10초 뒤 화면이 켜졌음 / S1 로 껐음 |
@@ -299,15 +497,16 @@ PC 는 상태·문구가 바뀌면 즉시, 아니면 5초(데모 2초)마다 다
 ```
 firmware/nu40_commute/nu40_commute.ino   보드 펌웨어 (그리기·카운트다운·버튼·LED)
 firmware/nu40_commute/commute_font.h      글꼴 데이터 (자동 생성물, 고치지 말 것)
-host/commute.py                           PC 프로그램: API → 탈 열차 → 상태 → 시리얼
-host/holidays.py                          공휴일 목록·요일 판정
+host/commute.py                           PC 프로그램: 열차 시각(times/gtfs/seoul) → 탈 열차 → 상태 → 시리얼 (ko/en)
+host/holidays.py                          공휴일 목록·요일 판정 (seoul)
 host/config.example.env                   설정 템플릿 (복사해서 host/.env)
 host/requirements.txt                     파이썬 라이브러리
-host/cache/                               시간표 캐시 (자동 생성)
-tools/make_commute_font.py                글꼴 헤더 생성기
-tools/preview/preview.py                  화면 시안 = 디자인 기준 (PNG/GIF, --line, --check-font)
-tools/preview/*.png, demo.gif             시안 이미지
+host/cache/                               시간표 캐시 (자동 생성, seoul)
+tools/make_commute_font.py                글꼴 헤더 생성기 (한글 문구 + ASCII 전부)
+tools/preview/preview.py                  화면 시안 = 디자인 기준 (PNG/GIF, --line, --lang, --check-font)
+tools/preview/*.png, demo.gif             시안 이미지 (한글). en_*.png, en_demo.gif 는 영어, 0_boot.png 는 부팅 화면
 samples/                                  API 응답 샘플 (키 없이 돌려 볼 때 시간표 대용)
+samples/gtfs_sample/                      TRAIN_SOURCE=gtfs 시험용 작은 GTFS 피드
 build/nu40_commute/nu40_commute.uf2       컴파일된 펌웨어 (드래그로 굽기)
 DATA_SOURCES.md                           데이터 출처 조사 기록
 .env                                      SEOUL_SUBWAY_KEY (깃에 안 올라감)

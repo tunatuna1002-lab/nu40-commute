@@ -58,12 +58,28 @@ TEXTS = [
     "실시간 모드",
     "퇴근 시간 아님",
     " ",
+    # 영어 문구 (LANG=en). host/commute.py 의 MESSAGES["en"] / NOTICES["en"] 과 같아야 한다
+    "Plenty of time",
+    "Start packing",
+    "Leave now!",
+    "Run, you'll make it!",
+    "Missed it... next one!",
+    "18:09 train",
+    "Walk 10 min",
+    "Waiting for PC...",
+    "Loading timetable...",
+    "No trains found",
+    "Error, retrying...",
+    "Off hours",
 ]
+
+# 영어 모드에선 어떤 문구가 와도 그릴 수 있게 출력 가능한 ASCII(0x20~0x7E)를 전부 넣는다. 약 2.5KB.
+ASCII_PRINTABLE = "".join(chr(c) for c in range(0x20, 0x7F))
 
 
 def collect_chars(extra=""):
     chars = set()
-    for t in TEXTS + [extra]:
+    for t in TEXTS + [ASCII_PRINTABLE, extra]:
         chars.update(t)
     return sorted(chars)
 
@@ -118,7 +134,7 @@ def main():
     lines.append("// 이 파일은 tools/make_commute_font.py 가 자동으로 만든 것입니다. 직접 고치지 마세요.")
     lines.append("//")
     lines.append("// 퇴근 알림 보드 글꼴 데이터 (갈무리9 픽셀 글꼴, 시안 preview.py 와 같은 렌더링)")
-    lines.append(f"//   글자 수   : {len(glyphs)}자 (한글 + 숫자 + 기호, 화면에 나오는 것만)")
+    lines.append(f"//   글자 수   : {len(glyphs)}자 (한글은 화면에 나오는 것만 + 출력 가능한 ASCII 전부)")
     lines.append(f"//   차지 용량 : 약 {total} 바이트")
     lines.append("//")
     lines.append("// 저장 방식: 글자마다 폭(advance)·비트맵 위치(xoff, yoff)·크기(w, h)·비트맵 시작 번호.")

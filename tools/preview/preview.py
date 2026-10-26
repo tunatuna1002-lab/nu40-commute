@@ -15,8 +15,10 @@ drawScreen() 은 여기 그리는 순서·좌표·스프라이트를 그대로 �
   맨 밑 : 탈 열차 시각 · 도보 시간
 
 실행:
-  python3 tools/preview/preview.py                       # 시안 4장 + all.png + demo.gif
+  python3 tools/preview/preview.py                       # 시안 4장 + all.png + demo.gif (한글) 과 en_*.png / en_demo.gif (영어)
+  python3 tools/preview/preview.py --lang en             # 영어 세트만
   python3 tools/preview/preview.py --line "S|go|700|1|18:09 열차 타기|도보10분|지금 출발해야 해요!" --out x.png
+  python3 tools/preview/preview.py --line "S|go|700|1|18:09 train|Walk 10 min|Leave now!" --out x.png
                                                          # 시리얼 한 줄이 보드에 어떻게 뜨는지
   python3 tools/preview/preview.py --check-font          # 펌웨어 글꼴 헤더가 PIL 렌더링과 같은지 검사
 """
@@ -126,12 +128,30 @@ FACES = {
 STATION_POLE = ["###", "#.#", "#.#", "#.#", "#.#", "#.#", "#.#", "#.#"]
 FLAG = ["###", "##.", "#.."]
 
-MESSAGES = {
-    "relax": "아직 여유 있어요",
-    "pack": "슬슬 짐 싸야 해요",
-    "go": "지금 출발해야 해요!",
-    "missed": "놓쳤어요… 다음 거!",
+# 화면 문구 (host/commute.py 의 MESSAGES 와 같다). LANG=ko / en
+MESSAGES_BY_LANG = {
+    "ko": {
+        "relax": "아직 여유 있어요",
+        "pack": "슬슬 짐 싸야 해요",
+        "go": "지금 출발해야 해요!",
+        "missed": "놓쳤어요… 다음 거!",
+        "bottom_left": "{clock} 열차 타기",
+        "walk": "도보10분",
+        "wait": "연결 대기 중…",
+    },
+    "en": {
+        "relax": "Plenty of time",
+        "pack": "Start packing",
+        "go": "Leave now!",
+        "missed": "Missed it... next one!",
+        "bottom_left": "{clock} train",
+        "walk": "Walk 10 min",
+        "wait": "Waiting for PC...",
+    },
 }
+MESSAGES = MESSAGES_BY_LANG["ko"]          # 기본(한글) 시안
+BOOT_NOTICE = ("연결 대기 중…", "Waiting for PC...")   # 펌웨어 부팅 화면 두 줄 (PC 가 아직 아무것도 안 보냈을 때)
+BOOT_Y = (18, 32)
 
 
 def sprite(d, rows, x, y):
@@ -192,18 +212,21 @@ def arrive_label(arrive_in):
     return f"{m}:{s:02d}"
 
 
-def render(arrive_in, train_clock, tick=0, state=None, bottom_left=None, bottom_right="도보10분", msg=None):
+def render(arrive_in, train_clock, tick=0, state=None, bottom_left=None, bottom_right=None, msg=None, lang="ko"):
     """보드 화면 한 장. 펌웨어 drawScreen() 과 같은 순서로 그린다.
       arrive_in   : 열차가 삼성역에 닿을 때까지 남은 초
       train_clock : "18:09" (bottom_left 를 직접 주면 무시)
       tick        : 애니메이션 프레임 번호 (침목 스크롤, 출발 단계 깡총·깜빡)
+      lang        : 문구를 직접 주지 않았을 때 쓸 언어 ("ko" / "en")
     """
+    texts = MESSAGES_BY_LANG[lang]
     img = Image.new("1", (W, H), 0)
     d = ImageDraw.Draw(img)
     leave_in = arrive_in - LEAVE_S
     state = state or state_for(leave_in)
-    msg = msg if msg is not None else MESSAGES[state]
-    bottom_left = bottom_left if bottom_left is not None else f"{train_clock} 열차 타기"
+    msg = msg if msg is not None else texts[state]
+    bottom_left = bottom_left if bottom_left is not None else texts["bottom_left"].format(clock=train_clock)
+    bottom_right = bottom_right if bottom_right is not None else texts["walk"]
 
     # 위: 캐릭터 + 말풍선 ("go" 일 땐 캐릭터가 통통 튄다)
     hop = -1 if (state == "go" and tick % 2) else 0
@@ -245,6 +268,15 @@ def render_notice(text):
     img = Image.new("1", (W, H), 0)
     d = ImageDraw.Draw(img)
     d.text(((W - text_w(text)) // 2, NOTICE_Y), text, font=GALMURI, fill=1)
+    return img
+
+
+def render_boot():
+    """펌웨어가 켜진 직후(PC 가 아직 아무것도 안 보냈을 때) 보여 주는 두 줄: 한글 / 영어."""
+    img = Image.new("1", (W, H), 0)
+    d = ImageDraw.Draw(img)
+    for text, y in zip(BOOT_NOTICE, BOOT_Y):
+        d.text(((W - text_w(text)) // 2, y), text, font=GALMURI, fill=1)
     return img
 
 
@@ -320,7 +352,8 @@ def check_font():
     from make_commute_font import TEXTS   # 헤더에 들어간 문장 목록
     glyphs = load_font_header()
     bad = 0
-    for t in TEXTS + ["16:00+", "0:00", "9:59", "15:20", "11:40", "10:50"]:
+    for t in TEXTS + ["16:00+", "0:00", "9:59", "15:20", "11:40", "10:50",
+                      "The quick brown fox jumps over the lazy dog 0123456789 @#%&*(){}[]<>/\\|~^_=+-?;:'\",."]:
         ref = Image.new("1", (W * 2, H), 0)
         ImageDraw.Draw(ref).text((3, 20), t, font=GALMURI, fill=1)
         got = draw_text_with_header(glyphs, t, 3, 20)
@@ -338,6 +371,8 @@ def main():
     ap.add_argument("--tick", type=int, default=0, help="--line 과 함께: 애니메이션 프레임 번호")
     ap.add_argument("--out", help="--line 결과 저장 경로 (기본 tools/preview/line.png)")
     ap.add_argument("--check-font", action="store_true", help="펌웨어 글꼴 헤더 검증")
+    ap.add_argument("--lang", choices=("ko", "en", "all"), default="all",
+                    help="시안을 만들 언어 (기본 all: 한글 세트 + en_*.png 영어 세트)")
     args = ap.parse_args()
 
     if args.check_font:
@@ -349,28 +384,34 @@ def main():
         print("저장:", out)
         return 0
 
-    shots = [("1_여유", 15 * 60 + 20, "18:09"), ("2_짐싸기", 13 * 60 + 30, "18:09"),
-             ("3_출발", 11 * 60 + 40, "18:09"), ("4_놓침", 10 * 60 + 50, "18:09")]
-    tiles = []
-    for name, t, clock in shots:
-        tile = to_screen(render(t, clock))
-        tile.save(OUT / f"{name}.png")
-        tiles.append(tile)
-    # 4장 모아보기 (2x2)
-    tw, th = tiles[0].size
-    gap = 10
-    sheet = Image.new("RGB", (tw * 2 + gap, th * 2 + gap), (18, 18, 20))
-    for i, tile in enumerate(tiles):
-        sheet.paste(tile, ((i % 2) * (tw + gap), (i // 2) * (th + gap)))
-    sheet.save(OUT / "all.png")
-    # 안내 화면 예시
-    to_screen(render_notice("연결 대기 중…")).save(OUT / "5_안내.png")
-    # 데모: 도착 16분 전 → 10분 전을 8초로 압축 (촬영용 데모 모드와 같은 흐름)
-    frames = []
-    for i, t in enumerate(range(16 * 60, 10 * 60 - 1, -6)):
-        frames.append(to_screen(render(t, "18:09", tick=i), 4))
-    frames[0].save(OUT / "demo.gif", save_all=True, append_images=frames[1:], duration=80, loop=0)
-    print("ok", len(frames))
+    # 상태별 시안. 한글은 기존 파일 이름 그대로, 영어는 en_ 접두어로 따로 저장한다.
+    shots = [(15 * 60 + 20, "1_여유", "en_1_plenty"), (13 * 60 + 30, "2_짐싸기", "en_2_pack"),
+             (11 * 60 + 40, "3_출발", "en_3_leave"), (10 * 60 + 50, "4_놓침", "en_4_missed")]
+    langs = ("ko", "en") if args.lang == "all" else (args.lang,)
+    for lang in langs:
+        prefix = "" if lang == "ko" else "en_"
+        tiles = []
+        for t, name_ko, name_en in shots:
+            tile = to_screen(render(t, "18:09", lang=lang))
+            tile.save(OUT / f"{name_ko if lang == 'ko' else name_en}.png")
+            tiles.append(tile)
+        # 4장 모아보기 (2x2)
+        tw, th = tiles[0].size
+        gap = 10
+        sheet = Image.new("RGB", (tw * 2 + gap, th * 2 + gap), (18, 18, 20))
+        for i, tile in enumerate(tiles):
+            sheet.paste(tile, ((i % 2) * (tw + gap), (i // 2) * (th + gap)))
+        sheet.save(OUT / f"{prefix}all.png")
+        # 안내 화면 예시 (PC 가 보낸 N| 줄)
+        to_screen(render_notice(MESSAGES_BY_LANG[lang]["wait"])).save(OUT / ("5_안내.png" if lang == "ko" else "en_5_waiting.png"))
+        # 데모: 도착 16분 전 → 10분 전을 8초로 압축 (촬영용 데모 모드와 같은 흐름)
+        frames = []
+        for i, t in enumerate(range(16 * 60, 10 * 60 - 1, -6)):
+            frames.append(to_screen(render(t, "18:09", tick=i, lang=lang), 4))
+        frames[0].save(OUT / f"{prefix}demo.gif", save_all=True, append_images=frames[1:], duration=80, loop=0)
+        print(lang, "ok", len(frames))
+    # 펌웨어 부팅 화면 (두 언어 공통)
+    to_screen(render_boot()).save(OUT / "0_boot.png")
     return 0
 
 

@@ -16,6 +16,7 @@
     - I2C    : 선 2가닥(SDA/SCL)으로 화면과 대화하는 통신 방식
     - 시리얼 : USB 케이블로 PC 와 글자를 주고받는 통로. 여기선 115200 속도
     - 상태   : relax(여유) / pack(짐 싸기) / go(출발) / missed(놓침). PC 가 정해서 보내 준다
+    - 문구   : 한글/영어는 PC 의 .env LANG 이 정한다. 보드는 받은 글자를 그대로 그릴 뿐이다 (글꼴에 둘 다 있음)
 
   시리얼 규약 (115200, 줄 단위, UTF-8)  — 자세한 것은 README 7절
     PC → 보드
@@ -36,7 +37,8 @@
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
 
-// 글꼴 데이터 (갈무리9, 화면에 쓰는 글자만). tools/make_commute_font.py 가 만든다.
+// 글꼴 데이터 (갈무리9: 화면에 쓰는 한글 + 출력 가능한 ASCII 전부). tools/make_commute_font.py 가 만든다.
+// 한글·영어 문구 모두 같은 drawText() 로 그린다 (유니코드 번호로 글자를 찾으므로 언어 구분이 없다).
 #include "commute_font.h"
 
 // ─────────────────────────────────────────────────────────────
@@ -80,6 +82,10 @@ static const int16_t TOP_X0 = 17, TOP_Y0 = 0, TOP_X1 = 127, TOP_Y1 = 14;  // 위
 static const int16_t TOP_TEXT_Y    = 2;
 static const int16_t BOTTOM_TEXT_Y = 52;
 static const int16_t NOTICE_Y      = 26;
+// 부팅 화면 (PC 연결 전). 언어 설정은 PC 쪽(.env LANG)에 있어서 보드는 아직 모르므로 두 언어를 함께 보여 준다.
+static const char* BOOT_LINE_KO = "연결 대기 중…";
+static const char* BOOT_LINE_EN = "Waiting for PC...";
+static const int16_t BOOT_Y_KO = 18, BOOT_Y_EN = 32;
 
 // 애니메이션 한 칸 간격. 침목이 1픽셀 흐르고, 출발 단계에선 캐릭터가 깡총·글자가 깜빡인다.
 static const uint32_t ANIM_MS = 200;
@@ -134,15 +140,16 @@ static const uint8_t FLAG_BITS[3]         = { 0b111, 0b110, 0b100 };
 // ─────────────────────────────────────────────────────────────
 // 보드가 기억하는 화면 상태
 // ─────────────────────────────────────────────────────────────
-enum ScreenMode { MODE_NOTICE, MODE_BOARD };
+// MODE_BOOT = 켜진 직후, PC 가 아직 아무것도 안 보냈을 때 (한글/영어 두 줄). N| 이 오면 MODE_NOTICE.
+enum ScreenMode { MODE_BOOT, MODE_NOTICE, MODE_BOARD };
 
-static ScreenMode mode = MODE_NOTICE;
+static ScreenMode mode = MODE_BOOT;
 static int8_t   stateIdx = 0;              // 0 relax, 1 pack, 2 go, 3 missed
 static int32_t  arriveBase = 0;            // PC 가 알려준 "도착까지 남은 초"
 static uint32_t arriveBaseMs = 0;          // 그 값을 받은 시각(millis). 여기서부터 혼자 깎는다
 static int32_t  speedX = 1;                // 1 = 실제 속도, 데모 모드에선 8 같은 값(초가 8배 빨리 간다)
-static char     bottomLeft[40]  = "";      // "18:09 열차 타기"
-static char     bottomRight[24] = "";      // "도보10분"
+static char     bottomLeft[40]  = "";      // "18:09 열차 타기" / "18:09 train"
+static char     bottomRight[24] = "";      // "도보10분" / "Walk 10 min"
 static char     message[64]     = "";      // 위 말풍선 문구
 static char     notice[64]      = "";      // 안내 화면 문구
 static bool     powerOn   = true;          // 화면 켜짐 여부 (P| 명령, S1 버튼)
@@ -182,7 +189,6 @@ void setup() {
   displayOk = display.begin(SSD1306_SWITCHCAPVCC, OLED_ADDR_MAIN);
   if (!displayOk) displayOk = display.begin(SSD1306_SWITCHCAPVCC, OLED_ADDR_ALT);
 
-  strncpy(notice, "연결 대기 중…", sizeof(notice) - 1);
   if (displayOk) {
     display.clearDisplay();
     drawScreen();
@@ -481,7 +487,13 @@ int16_t xAt(int32_t seconds) {
 void drawScreen() {
   display.clearDisplay();
 
-  if (mode == MODE_NOTICE) {
+  if (mode == MODE_BOOT) {                 // preview.py render_boot() 와 같다
+    drawText((SCREEN_WIDTH - textWidth(BOOT_LINE_KO)) / 2, BOOT_Y_KO, BOOT_LINE_KO);
+    drawText((SCREEN_WIDTH - textWidth(BOOT_LINE_EN)) / 2, BOOT_Y_EN, BOOT_LINE_EN);
+    display.display();
+    return;
+  }
+  if (mode == MODE_NOTICE) {               // preview.py render_notice() 와 같다
     drawText((SCREEN_WIDTH - textWidth(notice)) / 2, NOTICE_Y, notice);
     display.display();
     return;

@@ -1,30 +1,39 @@
 #!/usr/bin/env python3
 """
-commute.py — 삼성역 열차 정보를 받아 "언제 나가야 하나"를 계산하고 NU40 DK 보드에 보낸다
+commute.py — 열차 시각을 받아 "언제 나가야 하나"를 계산하고 NU40 DK 보드에 보낸다
+commute.py — picks the train you can still catch and tells the NU40 DK board when to leave
 
 역할 분담 (중요):
-  - 이 프로그램(PC) : 서울시 지하철 API 호출, 시간표/실시간 해석, 탈 열차 고르기, 상태 판단, 문구 만들기
+  - 이 프로그램(PC) : 열차 시각 가져오기(시간표/고정 시각/GTFS), 탈 열차 고르기, 상태 판단, 문구 만들기
   - 보드(NU40 DK)   : 받은 상태·문구를 그리고, 남은 시간을 혼자 깎아 가며 열차를 움직인다
   NU40 에는 WiFi 가 없어서 보드가 직접 인터넷을 못 씁니다. 그래서 이렇게 나눴습니다.
 
-어떻게 "탈 열차"를 고르나
+열차 시각 공급원 (TRAIN_SOURCE, .env)
+  times  (기본) TRAIN_TIMES=18:02,18:12,… 또는 TRAIN_EVERY=10 (+TRAIN_FIRST/TRAIN_LAST). 키·인터넷 불필요, 어디서나.
+  gtfs          GTFS 정적 피드(폴더나 zip)에서 GTFS_STOP_ID 정류장의 오늘 운행 시각을 읽는다. 전 세계 대부분의 교통기관 제공.
+  seoul         서울시 지하철 API: 시간표 + 실시간 지연 보정 (SEOUL_SUBWAY_KEY 필요). 아래 설명.
+
+어떻게 "탈 열차"를 고르나 (seoul)
   - 실시간 도착정보는 방면마다 다음 2대(약 4분 앞)까지만 보여 줍니다. 그런데 회사→역 도보 10분 +
     여유 1분 = 11분이라, 실시간에 보이는 열차는 이미 못 탑니다.
   - 그래서 **시간표**에서 "지금 + 11분 이후에 오는 첫 열차"를 고릅니다.
   - 실시간은 **지연 보정**에만 씁니다. 지금 보이는 열차들이 시간표보다 얼마나 늦는지(열차번호로 대조)를
     재서 고른 열차에도 같은 지연을 얹습니다. 고른 열차 자체가 보이면 그 값을 그대로 씁니다.
+  times / gtfs 는 실시간이 없으므로 시각표 그대로 고릅니다. 고르는 규칙·상태·버튼은 세 공급원이 같습니다.
 
-상태 (나갈 때까지 남은 초 = leave_in = 열차 도착까지 − 11분)
-  relax  leave_in > 180     "아직 여유 있어요"
-  pack   leave_in ≤ 180     "슬슬 짐 싸야 해요"
-  go     leave_in ≤ 60      "지금 출발해야 해요!"
-  run    leave_in < 0       "지금 뛰면 가능해요!"  (도착 9~11분 전. 보드에는 go 로 보낸다)
-  missed leave_in < -120    "놓쳤어요… 다음 거!"  → 5초 보여 주고 다음 열차로
+상태 (나갈 때까지 남은 초 = leave_in = 열차 도착까지 − 11분)        LANG=ko                LANG=en
+  relax  leave_in > 180     "아직 여유 있어요"        "Plenty of time"
+  pack   leave_in ≤ 180     "슬슬 짐 싸야 해요"       "Start packing"
+  go     leave_in ≤ 60      "지금 출발해야 해요!"     "Leave now!"
+  run    leave_in < 0       "지금 뛰면 가능해요!"     "Run, you'll make it!"   (도착 9~11분 전. 보드에는 go 로 보낸다)
+  missed leave_in < -120    "놓쳤어요… 다음 거!"      "Missed it... next one!" → 5초 보여 주고 다음 열차로
 
 실행:
-    python3 host/commute.py                       # 실시간 (키 필요, 보드 연결)
+    python3 host/commute.py                       # .env 의 TRAIN_SOURCE 로 (보드 연결)
     python3 host/commute.py --demo                # 촬영용 데모 (키·인터넷 없이, 40초 안팎에 한 바퀴)
     python3 host/commute.py --dry-run --demo      # 보드 없이: 보낼 줄을 화면에 찍기만
+    python3 host/commute.py --lang ko             # 화면 언어 (.env LANG 보다 우선)
+    python3 host/commute.py --find-stop "Central" # GTFS: 정류장 이름으로 stop_id 찾기
     python3 host/commute.py --start-after 20      # 켠 뒤 20초 동안 화면 끄고 있다가 켜기 (촬영용)
     python3 host/commute.py --render shot.png     # 보낼 때마다 보드 화면을 PNG 로 (Pillow 필요)
     Ctrl+C 로 멈춥니다.
@@ -33,6 +42,8 @@ commute.py — 삼성역 열차 정보를 받아 "언제 나가야 하나"를 �
 """
 
 import argparse
+import csv
+import io
 import json
 import os
 import re
@@ -40,6 +51,7 @@ import statistics
 import sys
 import threading
 import time
+import zipfile
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
@@ -66,19 +78,50 @@ SAMPLE_TIMETABLE = ROOT / "samples/timetable_samsung_weekday_outer.json"
 CACHE_DIR = HERE / "cache"
 FONT_HEADER = ROOT / "firmware/nu40_commute/commute_font.h"
 
+SOURCES = ("times", "gtfs", "seoul")
+LANGS = ("en", "ko")
+
 # 화면 문구. 펌웨어 글꼴(commute_font.h)에 이 글자들이 다 들어 있어야 한다.
+# (tools/make_commute_font.py 의 TEXTS 와 같은 문장. 바꾸면 거기도 바꾸고 글꼴을 다시 만들 것)
 MESSAGES = {
-    "relax": "아직 여유 있어요",
-    "pack": "슬슬 짐 싸야 해요",
-    "go": "지금 출발해야 해요!",
-    "run": "지금 뛰면 가능해요!",
-    "missed": "놓쳤어요… 다음 거!",
+    "ko": {
+        "relax": "아직 여유 있어요",
+        "pack": "슬슬 짐 싸야 해요",
+        "go": "지금 출발해야 해요!",
+        "run": "지금 뛰면 가능해요!",
+        "missed": "놓쳤어요… 다음 거!",
+    },
+    "en": {
+        "relax": "Plenty of time",
+        "pack": "Start packing",
+        "go": "Leave now!",
+        "run": "Run, you'll make it!",
+        "missed": "Missed it... next one!",
+    },
 }
-NOTICE_WAIT = "연결 대기 중…"
-NOTICE_LOADING = "시간표 받는 중…"
-NOTICE_NO_TRAIN = "열차 정보 없음"
-NOTICE_ERROR = "오류… 다시 시도 중"
-NOTICE_OFF_HOURS = "퇴근 시간 아님"
+NOTICES = {
+    "ko": {
+        "wait": "연결 대기 중…",
+        "loading": "시간표 받는 중…",
+        "no_train": "열차 정보 없음",
+        "error": "오류… 다시 시도 중",
+        "off_hours": "퇴근 시간 아님",
+    },
+    "en": {
+        "wait": "Waiting for PC...",
+        "loading": "Loading timetable...",
+        "no_train": "No trains found",
+        "error": "Error, retrying...",
+        "off_hours": "Off hours",
+    },
+}
+
+_LANG = "en"                  # Config 가 정한다. 로그 문장 선택용 (tr)
+
+
+def tr(ko, en):
+    """로그 문장을 화면 언어에 맞춰 고른다."""
+    return ko if _LANG == "ko" else en
 
 
 def log(msg):
@@ -121,13 +164,15 @@ def parse_hhmm(text, name):
         return None
     m = re.fullmatch(r"(\d{1,2}):(\d{2})", text)
     if not m or not (0 <= int(m.group(1)) < 24 and 0 <= int(m.group(2)) < 60):
-        log(f"{name}='{text}' 는 HH:MM 형식이 아니라 무시합니다.")
+        log(tr(f"{name}='{text}' 는 HH:MM 형식이 아니라 무시합니다.",
+               f"{name}='{text}' is not HH:MM — ignored."))
         return None
     return int(m.group(1)) * 60 + int(m.group(2))
 
 
 class Config:
-    def __init__(self):
+    def __init__(self, lang_override=None, source_override=None):
+        global _LANG
         merged = {}
         loaded = []
         for p in (ROOT / ".env", HERE / ".env"):      # 뒤의 것이 우선
@@ -135,23 +180,51 @@ class Config:
             if vals:
                 loaded.append(str(p))
             merged.update(vals)
-        for k, v in os.environ.items():                # 환경변수가 최우선
-            if k in ("SEOUL_SUBWAY_KEY", "SERIAL_PORT"):
+        for k, v in os.environ.items():                # 환경변수가 최우선 (LANG 은 OS 로캘과 겹치므로 .env 만 본다)
+            if k in ("SEOUL_SUBWAY_KEY", "SERIAL_PORT", "TRAIN_SOURCE"):
                 merged[k] = v
         self.loaded_files = loaded
 
+        # 언어 먼저 (이후 로그 문장이 이 언어로 나간다)
+        lang = (lang_override or merged.get("LANG", "en")).strip().lower() or "en"
+        if lang not in LANGS:
+            log(f"LANG='{lang}' is not one of {'/'.join(LANGS)} — using 'en'.")
+            lang = "en"
+        self.lang = _LANG = lang
+
+        source = (source_override or merged.get("TRAIN_SOURCE", "times")).strip().lower() or "times"
+        if source not in SOURCES:
+            log(tr(f"TRAIN_SOURCE='{source}' 는 {'/'.join(SOURCES)} 중 하나여야 합니다. 'times' 로 합니다.",
+                   f"TRAIN_SOURCE='{source}' is not one of {'/'.join(SOURCES)} — using 'times'."))
+            source = "times"
+        self.source = source
+
         self.key = merged.get("SEOUL_SUBWAY_KEY", "").strip()
         self.port = merged.get("SERIAL_PORT", "").strip()
+        # seoul
         self.station_name = merged.get("STATION_NAME", "삼성").strip() or "삼성"
         self.station_code = merged.get("STATION_CODE", "0219").strip() or "0219"
         self.updn_line = merged.get("UPDN_LINE", "외선").strip() or "외선"
         self.line_hint = merged.get("LINE_HINT", "종합운동장방면").strip() or "종합운동장방면"
+        self.poll_s = max(MIN_POLL_S, self._int(merged.get("REALTIME_POLL_SECONDS"), 60, "REALTIME_POLL_SECONDS"))
+        self.holidays = parse_extra(merged.get("HOLIDAYS", ""))
+        # times
+        self.train_times = merged.get("TRAIN_TIMES", "").strip()
+        self.train_every = self._int(merged.get("TRAIN_EVERY"), 0, "TRAIN_EVERY")
+        self.train_first = parse_hhmm(merged.get("TRAIN_FIRST", "05:00"), "TRAIN_FIRST")
+        self.train_last = parse_hhmm(merged.get("TRAIN_LAST", "23:59"), "TRAIN_LAST")
+        self.train_days = merged.get("TRAIN_DAYS", "").strip().lower()
+        # gtfs
+        self.gtfs_path = merged.get("GTFS_PATH", "").strip()
+        self.gtfs_stop_id = merged.get("GTFS_STOP_ID", "").strip()
+        self.gtfs_route_id = merged.get("GTFS_ROUTE_ID", "").strip()
+        self.gtfs_direction_id = merged.get("GTFS_DIRECTION_ID", "").strip()
+        self.gtfs_headsign = merged.get("GTFS_HEADSIGN", "").strip()
+        # 공통
         self.walk_min = self._int(merged.get("WALK_MINUTES"), 10, "WALK_MINUTES")
         self.buffer_min = self._int(merged.get("BUFFER_MINUTES"), 1, "BUFFER_MINUTES")
         self.on_at = parse_hhmm(merged.get("ON_AT", "18:00"), "ON_AT")
         self.off_at = parse_hhmm(merged.get("OFF_AT", "20:00"), "OFF_AT")
-        self.poll_s = max(MIN_POLL_S, self._int(merged.get("REALTIME_POLL_SECONDS"), 60, "REALTIME_POLL_SECONDS"))
-        self.holidays = parse_extra(merged.get("HOLIDAYS", ""))
         self.demo_speed = max(1, self._int(merged.get("DEMO_SPEED"), 8, "DEMO_SPEED"))
 
     @staticmethod
@@ -161,16 +234,32 @@ class Config:
         try:
             return int(str(raw).strip())
         except ValueError:
-            log(f"{name}='{raw}' 는 숫자가 아니라 기본값 {default} 을 씁니다.")
+            log(tr(f"{name}='{raw}' 는 숫자가 아니라 기본값 {default} 을 씁니다.",
+                   f"{name}='{raw}' is not a number — using default {default}."))
             return default
 
     @property
     def leave_s(self):
         return (self.walk_min + self.buffer_min) * 60
 
+    # ── 화면 문구 (언어별) ──
     @property
     def walk_label(self):
-        return f"도보{self.walk_min}분"
+        return f"도보{self.walk_min}분" if self.lang == "ko" else f"Walk {self.walk_min} min"
+
+    def bottom_left(self, clock):
+        return f"{clock} 열차 타기" if self.lang == "ko" else f"{clock} train"
+
+    def msg(self, state):
+        return MESSAGES[self.lang][state]
+
+    def notice(self, key):
+        return NOTICES[self.lang][key]
+
+    def screen_texts(self):
+        """보드에 보낼 수 있는 모든 문구 (글꼴 검사용)."""
+        return list(MESSAGES[self.lang].values()) + list(NOTICES[self.lang].values()) + \
+            [self.walk_label, self.bottom_left("18:09")]
 
     def mask(self, text):
         """로그에 키가 섞여 나가지 않게 가린다."""
@@ -178,7 +267,7 @@ class Config:
 
 
 # ─────────────────────────────────────────────────────────────
-# 시간표
+# 열차 (모든 공급원이 이 꼴로 돌려준다)
 # ─────────────────────────────────────────────────────────────
 class Train:
     """시간표의 열차 하나. arrive = 역 도착(예정) 시각."""
@@ -192,14 +281,246 @@ class Train:
 
 
 def parse_clock(day, text):
-    """'18:09:30' 또는 '24:15:30'(다음날 새벽) → datetime. 못 읽으면 None."""
-    m = re.fullmatch(r"(\d{1,2}):(\d{2}):(\d{2})", (text or "").strip())
+    """'18:09:30', '18:09' 또는 '24:15:30'(다음날 새벽) → datetime. 못 읽으면 None.
+    GTFS 도 자정 넘는 운행을 25:10:00 처럼 적는다."""
+    m = re.fullmatch(r"(\d{1,2}):(\d{2})(?::(\d{2}))?", (text or "").strip())
     if not m:
         return None
-    h, mi, s = int(m.group(1)), int(m.group(2)), int(m.group(3))
+    h, mi, s = int(m.group(1)), int(m.group(2)), int(m.group(3) or 0)
     return datetime.combine(day, datetime.min.time()) + timedelta(hours=h, minutes=mi, seconds=s)
 
 
+# ─────────────────────────────────────────────────────────────
+# 공급원 1: 고정 시각 (TRAIN_SOURCE=times) — 키·인터넷 없이 어디서나
+# ─────────────────────────────────────────────────────────────
+DAY_NAMES = {"mon": 0, "tue": 1, "wed": 2, "thu": 3, "fri": 4, "sat": 5, "sun": 6}
+
+
+def parse_days(text):
+    """TRAIN_DAYS='mon-fri' / 'weekdays' / 'mon,wed,fri' / '' (매일) → 요일 번호 집합(월=0)."""
+    text = (text or "").strip().lower()
+    if not text or text in ("daily", "everyday", "all"):
+        return set(range(7))
+    if text in ("weekdays", "weekday"):
+        return set(range(5))
+    if text in ("weekends", "weekend"):
+        return {5, 6}
+    days = set()
+    for piece in text.split(","):
+        piece = piece.strip()
+        if "-" in piece:
+            a, _, b = piece.partition("-")
+            if a[:3] in DAY_NAMES and b[:3] in DAY_NAMES:
+                i, j = DAY_NAMES[a[:3]], DAY_NAMES[b[:3]]
+                days.update(range(i, j + 1) if i <= j else list(range(i, 7)) + list(range(0, j + 1)))
+                continue
+        elif piece[:3] in DAY_NAMES:
+            days.add(DAY_NAMES[piece[:3]])
+            continue
+        log(f"TRAIN_DAYS: cannot read '{piece}' — ignored.")
+    return days or set(range(7))
+
+
+class TimesSource:
+    """TRAIN_TIMES=18:02,18:12,… 와/또는 TRAIN_EVERY=10 (TRAIN_FIRST~TRAIN_LAST) 로 만든 고정 시각표."""
+
+    def __init__(self, cfg):
+        self.cfg = cfg
+        self.days = parse_days(cfg.train_days)
+        secs = set()
+        for piece in cfg.train_times.split(","):
+            piece = piece.strip()
+            if not piece:
+                continue
+            dt = parse_clock(date(2000, 1, 1), piece)
+            if dt is None:
+                log(tr(f"TRAIN_TIMES: '{piece}' 는 HH:MM 형식이 아니라 무시합니다.",
+                       f"TRAIN_TIMES: '{piece}' is not HH:MM — ignored."))
+                continue
+            secs.add(int((dt - datetime(2000, 1, 1)).total_seconds()))
+        if cfg.train_every > 0:
+            first = (cfg.train_first if cfg.train_first is not None else 5 * 60) * 60
+            last = (cfg.train_last if cfg.train_last is not None else 23 * 60 + 59) * 60
+            t = first
+            while t <= last:
+                secs.add(t)
+                t += cfg.train_every * 60
+        self.secs = sorted(secs)
+
+    def ok(self):
+        return bool(self.secs)
+
+    def describe(self):
+        if self.cfg.train_every > 0:
+            first, last = self.secs[0], self.secs[-1]
+            how = f"every {self.cfg.train_every} min {first // 3600:02d}:{first // 60 % 60:02d}~{last // 3600:02d}:{last // 60 % 60:02d}"
+        else:
+            how = "TRAIN_TIMES"
+        return f"{len(self.secs)} departures/day ({how})"
+
+    def trains_for(self, day):
+        if day.weekday() not in self.days:
+            return []
+        base = datetime.combine(day, datetime.min.time())
+        return [Train(f"T{i:03d}", base + timedelta(seconds=s)) for i, s in enumerate(self.secs)]
+
+
+# ─────────────────────────────────────────────────────────────
+# 공급원 2: GTFS 정적 피드 (TRAIN_SOURCE=gtfs) — 폴더나 zip, 표준 라이브러리만
+# ─────────────────────────────────────────────────────────────
+class GtfsSource:
+    """stops.txt / trips.txt / stop_times.txt / calendar.txt / calendar_dates.txt 에서
+    GTFS_STOP_ID 정류장의 하루 운행 시각을 뽑는다. 큰 피드는 stop_times.txt 가 수백 MB 라 한 번만 훑고 메모리에 둔다."""
+
+    def __init__(self, cfg):
+        self.cfg = cfg
+        self.path = Path(cfg.gtfs_path).expanduser() if cfg.gtfs_path else None
+        self._zip = None
+        self._loaded = False
+        self._by_service = {}      # service_id -> [(time_text, trip_id)]
+        self._calendar = {}        # service_id -> (days set, start date, end date)
+        self._exceptions = {}      # (service_id, date) -> 1 add / 2 remove
+        self._day_cache = {}       # date -> [Train]
+        self.stop_name = ""
+
+    # ── 파일 열기 ──
+    def _open(self, name):
+        """피드 안의 CSV 하나를 텍스트 스트림으로. 없으면 None."""
+        if self.path is None:
+            return None
+        if self.path.is_dir():
+            p = self.path / name
+            return open(p, "r", encoding="utf-8-sig", newline="") if p.exists() else None
+        if self.path.is_file():
+            if self._zip is None:
+                self._zip = zipfile.ZipFile(self.path)
+            member = next((n for n in self._zip.namelist() if n == name or n.endswith("/" + name)), None)
+            if member is None:
+                return None
+            return io.TextIOWrapper(self._zip.open(member), encoding="utf-8-sig", newline="")
+        return None
+
+    def _rows(self, name):
+        f = self._open(name)
+        if f is None:
+            return
+        with f:
+            for row in csv.DictReader(f):
+                yield {k.strip(): (v or "").strip() for k, v in row.items() if k}
+
+    def ok(self):
+        if self.path is None or not self.path.exists():
+            log(tr(f"GTFS_PATH 가 없거나 비어 있습니다: '{self.cfg.gtfs_path}'",
+                   f"GTFS_PATH is missing or empty: '{self.cfg.gtfs_path}'"))
+            return False
+        if not self.cfg.gtfs_stop_id:
+            log(tr("GTFS_STOP_ID 가 비어 있습니다. --find-stop '정류장 이름' 으로 찾아보세요.",
+                   "GTFS_STOP_ID is empty. Try: python3 host/commute.py --find-stop 'part of the stop name'"))
+            return False
+        return True
+
+    def find_stops(self, text):
+        """정류장 이름에 text 가 들어간 것들 → [(stop_id, stop_name)]."""
+        text = text.lower()
+        out = []
+        for r in self._rows("stops.txt"):
+            if text in r.get("stop_name", "").lower() or text == r.get("stop_id", "").lower():
+                out.append((r.get("stop_id", ""), r.get("stop_name", ""), r.get("parent_station", "")))
+        return out
+
+    def _load(self):
+        if self._loaded:
+            return
+        self._loaded = True
+        cfg = self.cfg
+        stop_id = cfg.gtfs_stop_id
+
+        for r in self._rows("stops.txt"):
+            if r.get("stop_id") == stop_id:
+                self.stop_name = r.get("stop_name", "")
+                break
+        else:
+            log(tr(f"GTFS: stops.txt 에 stop_id '{stop_id}' 가 없습니다. --find-stop 으로 확인하세요.",
+                   f"GTFS: stop_id '{stop_id}' is not in stops.txt — check it with --find-stop."))
+
+        # trips: 필터(노선·방향·행선지)에 맞는 trip 만
+        trip_service = {}
+        route_ids = {s.strip() for s in cfg.gtfs_route_id.split(",") if s.strip()}
+        for r in self._rows("trips.txt"):
+            if route_ids and r.get("route_id") not in route_ids:
+                continue
+            if cfg.gtfs_direction_id and r.get("direction_id", "") != cfg.gtfs_direction_id:
+                continue
+            if cfg.gtfs_headsign and cfg.gtfs_headsign.lower() not in r.get("trip_headsign", "").lower():
+                continue
+            trip_service[r.get("trip_id")] = r.get("service_id", "")
+
+        # stop_times: 우리 정류장 줄만 (가장 큰 파일이라 한 번만 훑는다)
+        log(tr("GTFS: stop_times.txt 읽는 중… (큰 피드는 1~2분 걸릴 수 있어요)",
+               "GTFS: reading stop_times.txt... (large feeds can take a minute or two)"))
+        n = 0
+        for r in self._rows("stop_times.txt"):
+            if r.get("stop_id") != stop_id:
+                continue
+            svc = trip_service.get(r.get("trip_id"))
+            if svc is None:
+                continue
+            if r.get("pickup_type", "0") == "1":        # 승차 불가 (이 정류장이 종착)
+                continue
+            t = r.get("departure_time") or r.get("arrival_time")
+            if not t:
+                continue
+            self._by_service.setdefault(svc, []).append((t, r.get("trip_id", "")))
+            n += 1
+
+        for r in self._rows("calendar.txt"):
+            days = {i for i, name in enumerate(("monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"))
+                    if r.get(name) == "1"}
+            self._calendar[r.get("service_id")] = (days, r.get("start_date", ""), r.get("end_date", ""))
+        for r in self._rows("calendar_dates.txt"):
+            self._exceptions[(r.get("service_id"), r.get("date"))] = r.get("exception_type", "")
+
+        where = f"{self.stop_name} ({stop_id})" if self.stop_name else stop_id
+        log(tr(f"GTFS 준비: {where} — 운행 {n}편, trip {len(trip_service)}개, 서비스 {len(self._by_service)}개",
+               f"GTFS ready: {where} — {n} departures across {len(trip_service)} trips, {len(self._by_service)} service ids"))
+        if n == 0:
+            log(tr("GTFS: 이 정류장을 지나는 운행이 없습니다. GTFS_STOP_ID / GTFS_ROUTE_ID / GTFS_DIRECTION_ID 를 확인하세요.",
+                   "GTFS: no departures matched. Check GTFS_STOP_ID / GTFS_ROUTE_ID / GTFS_DIRECTION_ID / GTFS_HEADSIGN."))
+
+    def _active_services(self, day):
+        ymd = day.strftime("%Y%m%d")
+        active = set()
+        for svc, (days, start, end) in self._calendar.items():
+            if day.weekday() in days and (not start or start <= ymd) and (not end or ymd <= end):
+                active.add(svc)
+        for (svc, d), kind in self._exceptions.items():
+            if d != ymd:
+                continue
+            if kind == "1":
+                active.add(svc)
+            elif kind == "2":
+                active.discard(svc)
+        return active
+
+    def trains_for(self, day):
+        if day in self._day_cache:
+            return self._day_cache[day]
+        self._load()
+        trains = []
+        for svc in self._active_services(day):
+            for t, trip_id in self._by_service.get(svc, []):
+                dt = parse_clock(day, t)
+                if dt is not None:
+                    trains.append(Train(trip_id, dt))
+        trains.sort(key=lambda t: t.arrive)
+        self._day_cache[day] = trains
+        log(tr(f"GTFS: {day} 운행 {len(trains)}편", f"GTFS: {day} — {len(trains)} departures"))
+        return trains
+
+
+# ─────────────────────────────────────────────────────────────
+# 공급원 3: 서울시 지하철 — 시간표 (TRAIN_SOURCE=seoul)
+# ─────────────────────────────────────────────────────────────
 def rows_to_trains(rows, day, station_code):
     trains = []
     for r in rows:
@@ -316,7 +637,7 @@ class Timetable:
 
 
 # ─────────────────────────────────────────────────────────────
-# 실시간 도착정보
+# 서울시 지하철 — 실시간 도착정보 (지연 보정)
 # ─────────────────────────────────────────────────────────────
 def seconds_from_message(msg):
     """barvlDt 가 0 일 때 arvlMsg2 문장에서 남은 초를 추정한다. 모르면 None."""
@@ -465,7 +786,7 @@ def demo_trains(day):
 
 
 # ─────────────────────────────────────────────────────────────
-# 상태 판단 (실시간·데모 공통)
+# 상태 판단 (모든 공급원·데모 공통)
 # ─────────────────────────────────────────────────────────────
 class Frame:
     """보드에 보낼 한 장. S 줄 하나에 대응."""
@@ -508,7 +829,7 @@ class Planner:
         self.cfg = cfg
         self.clock = clock                 # () -> datetime
         self.trains_for = trains_for       # (date) -> [Train] | None
-        self.realtime = realtime           # Realtime 또는 None(데모)
+        self.realtime = realtime           # Realtime 또는 None(데모·times·gtfs)
         self.speed = speed
         self.current = None                # 지금 보여 주는 열차
         self.missed_at = None              # 놓침 표시를 시작한 실제 시각
@@ -545,7 +866,7 @@ class Planner:
         now = self.clock()
         trains = self._all_trains(now)
         if trains is None:
-            return "notice", NOTICE_ERROR
+            return "notice", self.cfg.notice("error")
         if self.realtime:
             self.realtime.maybe_poll(now, trains)
 
@@ -557,8 +878,9 @@ class Planner:
             self.current = self._pick(trains, now)
             self.missed_at = None
             if self.current is None:
-                return "notice", NOTICE_NO_TRAIN
-            log(f"탈 열차: {self.current} (지연 보정 {self._delay():+d}초)")
+                return "notice", self.cfg.notice("no_train")
+            log(tr(f"탈 열차: {self.current} (지연 보정 {self._delay():+d}초)",
+                   f"Next catchable train: {self.current} (delay correction {self._delay():+d}s)"))
 
         arrive_in = (self._eta(self.current) - now).total_seconds()
         leave_in = arrive_in - self.cfg.leave_s
@@ -567,7 +889,8 @@ class Planner:
         if state == "missed":
             if self.missed_at is None:
                 self.missed_at = time.time()
-                log(f"놓쳤어요: {self.current} → {MISSED_HOLD_S}초 뒤 다음 열차")
+                log(tr(f"놓쳤어요: {self.current} → {MISSED_HOLD_S}초 뒤 다음 열차",
+                       f"Missed {self.current} → next train in {MISSED_HOLD_S}s"))
             elif time.time() - self.missed_at >= MISSED_HOLD_S:
                 self.current = None
                 self.missed_at = None
@@ -577,13 +900,15 @@ class Planner:
 
         return "frame", Frame(
             state, arrive_in, self.speed,
-            f"{hhmm(self.current.arrive)} 열차 타기", self.cfg.walk_label, MESSAGES[state],
+            self.cfg.bottom_left(hhmm(self.current.arrive)), self.cfg.walk_label, self.cfg.msg(state),
         )
 
     def describe(self, frame):
         leave_in = frame.arrive_in - self.cfg.leave_s
-        return (f"탈 열차 {self.current} | 도착까지 {mmss(frame.arrive_in)} | 나갈 때까지 {mmss(leave_in)}"
-                f" | {frame.state} | 지연 {self._delay():+d}초")
+        return tr(f"탈 열차 {self.current} | 도착까지 {mmss(frame.arrive_in)} | 나갈 때까지 {mmss(leave_in)}"
+                  f" | {frame.state} | 지연 {self._delay():+d}초",
+                  f"train {self.current} | arrives in {mmss(frame.arrive_in)} | leave in {mmss(leave_in)}"
+                  f" | {frame.state} | delay {self._delay():+d}s")
 
 
 # ─────────────────────────────────────────────────────────────
@@ -622,14 +947,16 @@ class BoardLink:
         try:
             import serial
         except ImportError:
-            raise RuntimeError("pyserial 이 없습니다.  pip3 install -r host/requirements.txt")
+            raise RuntimeError(tr("pyserial 이 없습니다.  pip3 install -r host/requirements.txt",
+                                  "pyserial is not installed.  pip3 install -r host/requirements.txt"))
         try:
             self.ser = serial.Serial(self.port, BAUD, timeout=1)
         except Exception:
-            raise RuntimeError(
+            raise RuntimeError(tr(
                 f"시리얼 포트를 열 수 없습니다: {self.port}\n"
-                "       아두이노 IDE 의 시리얼 모니터가 열려 있으면 닫고 다시 하세요. (포트는 한 번에 한 프로그램만)"
-            )
+                "       아두이노 IDE 의 시리얼 모니터가 열려 있으면 닫고 다시 하세요. (포트는 한 번에 한 프로그램만)",
+                f"Cannot open serial port: {self.port}\n"
+                "       Close the Arduino IDE Serial Monitor and try again (only one program can hold the port)."))
         threading.Thread(target=self._read_loop, daemon=True).start()
 
     def _reconnect(self):
@@ -640,14 +967,14 @@ class BoardLink:
         except Exception:
             pass
         self.ser = None
-        log("보드 연결이 끊겼습니다 — 다시 연결을 기다립니다.")
+        log(tr("보드 연결이 끊겼습니다 — 다시 연결을 기다립니다.", "Board disconnected — waiting to reconnect."))
         while not self._stop:
             time.sleep(1)
             try:
                 self.ser = serial.Serial(self.port, BAUD, timeout=1)
             except Exception:
                 continue
-            log(f"보드 다시 연결됨: {self.port}")
+            log(tr(f"보드 다시 연결됨: {self.port}", f"Board reconnected: {self.port}"))
             with self._lock:
                 self.incoming.append("READY")   # 상태를 처음부터 다시 보내게 한다
             return
@@ -681,7 +1008,7 @@ class BoardLink:
             self.ser.flush()
             return True
         except Exception:
-            log("보드로 보내지 못했습니다. USB 케이블을 확인하세요.")
+            log(tr("보드로 보내지 못했습니다. USB 케이블을 확인하세요.", "Could not write to the board. Check the USB cable."))
             return False
 
     def close(self):
@@ -757,51 +1084,107 @@ def in_window(cfg, now):
 
 
 # ─────────────────────────────────────────────────────────────
+# 공급원 고르기
+# ─────────────────────────────────────────────────────────────
+def build_source(cfg, requests_mod):
+    """TRAIN_SOURCE 에 맞는 (trains_for, realtime, 설명) 을 돌려준다. 못 만들면 (None, None, 이유)."""
+    if cfg.source == "times":
+        src = TimesSource(cfg)
+        if not src.ok():
+            return None, None, tr("TRAIN_SOURCE=times 인데 TRAIN_TIMES 나 TRAIN_EVERY 가 비어 있습니다. host/.env 를 보세요.",
+                                  "TRAIN_SOURCE=times but neither TRAIN_TIMES nor TRAIN_EVERY is set. See host/config.example.env.")
+        return src.trains_for, None, tr(f"고정 시각표: {src.describe()}", f"fixed timetable: {src.describe()}")
+
+    if cfg.source == "gtfs":
+        src = GtfsSource(cfg)
+        if not src.ok():
+            return None, None, tr("GTFS 설정이 모자랍니다 (GTFS_PATH, GTFS_STOP_ID).",
+                                  "GTFS is not configured (GTFS_PATH, GTFS_STOP_ID).")
+        where = f"{cfg.gtfs_stop_id}" + (f" route {cfg.gtfs_route_id}" if cfg.gtfs_route_id else "") + \
+            (f" dir {cfg.gtfs_direction_id}" if cfg.gtfs_direction_id else "") + \
+            (f" '{cfg.gtfs_headsign}'" if cfg.gtfs_headsign else "")
+        return src.trains_for, None, f"GTFS {cfg.gtfs_path} — stop {where}"
+
+    # seoul
+    if requests_mod is None:
+        return None, None, tr("requests 가 없습니다. pip3 install -r host/requirements.txt",
+                              "requests is not installed. pip3 install -r host/requirements.txt")
+    if not cfg.key:
+        return None, None, tr("SEOUL_SUBWAY_KEY 가 비어 있어 서울시 API 를 못 씁니다.",
+                              "SEOUL_SUBWAY_KEY is empty — cannot use the Seoul API.")
+    timetable = Timetable(cfg, requests_mod)
+    realtime = Realtime(cfg, requests_mod)
+    return timetable.trains_for, realtime, tr(f"서울시 지하철 API — {cfg.station_name}역({cfg.station_code}) {cfg.updn_line} {cfg.line_hint}",
+                                              f"Seoul subway API — {cfg.station_name} ({cfg.station_code}) {cfg.updn_line} {cfg.line_hint}")
+
+
+# ─────────────────────────────────────────────────────────────
 # 메인
 # ─────────────────────────────────────────────────────────────
 def main():
-    ap = argparse.ArgumentParser(description="퇴근 알림 보드 — PC 쪽 프로그램")
-    ap.add_argument("--demo", action="store_true", help="촬영용 데모: 키·인터넷 없이 압축 타임라인")
+    ap = argparse.ArgumentParser(description="퇴근 알림 보드 — PC 쪽 프로그램 / Leave-for-your-train board, PC side")
+    ap.add_argument("--demo", action="store_true", help="촬영용 데모: 키·인터넷 없이 압축 타임라인 / demo with a fake fast clock")
     ap.add_argument("--demo-speed", type=int, help="데모 배속 (기본 .env DEMO_SPEED=8)")
-    ap.add_argument("--dry-run", action="store_true", help="보드 없이 보낼 줄만 출력")
+    ap.add_argument("--dry-run", action="store_true", help="보드 없이 보낼 줄만 출력 / no board: print the serial lines")
     ap.add_argument("--port", help="시리얼 포트 (예: /dev/cu.usbmodem1101, COM3)")
+    ap.add_argument("--lang", choices=LANGS, help="화면 언어 (.env LANG 보다 우선) / on-screen language")
+    ap.add_argument("--source", choices=SOURCES, help="열차 시각 공급원 (.env TRAIN_SOURCE 보다 우선) / train source")
+    ap.add_argument("--find-stop", metavar="TEXT", help="GTFS: 정류장 이름으로 stop_id 찾기 / search stops.txt by name")
     ap.add_argument("--start-after", type=float, default=0, metavar="N",
                     help="시작 후 N초 동안 화면을 꺼 두었다가 켠다 (촬영용)")
     ap.add_argument("--render", metavar="PNG", help="보낼 때마다 보드 화면을 이 PNG 로 저장 (Pillow 필요)")
-    ap.add_argument("--always-on", action="store_true", help="ON_AT/OFF_AT 스케줄을 무시하고 지금 바로 켠다")
+    ap.add_argument("--always-on", action="store_true", help="ON_AT/OFF_AT 스케줄을 무시하고 지금 바로 켠다 / ignore ON_AT/OFF_AT")
     ap.add_argument("--duration", type=float, default=0, metavar="SEC", help="이 초가 지나면 종료 (테스트용, 0=계속)")
     ap.add_argument("--verbose", action="store_true", help="보드에 보내는 줄을 전부 출력")
     args = ap.parse_args()
 
-    print("=" * 60)
-    print(" NU40 DK 퇴근 알림 보드 — 삼성역 2호선 (서울시 지하철 API)")
-    print("=" * 60)
+    cfg = Config(lang_override=args.lang, source_override=args.source)
 
-    cfg = Config()
+    print("=" * 60)
+    print(tr(" NU40 DK 퇴근 알림 보드", " NU40 DK leave-for-your-train board") + f"  [{cfg.source}, {cfg.lang}]")
+    print("=" * 60)
     for f in cfg.loaded_files:
-        log(f"설정 읽음: {f}")
-    log(f"출발선 = 도착 {cfg.walk_min + cfg.buffer_min}분 전 (도보 {cfg.walk_min} + 여유 {cfg.buffer_min})")
+        log(tr(f"설정 읽음: {f}", f"Config loaded: {f}"))
+    log(tr(f"출발선 = 도착 {cfg.walk_min + cfg.buffer_min}분 전 (도보 {cfg.walk_min} + 여유 {cfg.buffer_min})",
+           f"Leave line = {cfg.walk_min + cfg.buffer_min} min before the train (walk {cfg.walk_min} + buffer {cfg.buffer_min})"))
+
+    # GTFS 정류장 찾기만 하고 끝
+    if args.find_stop:
+        if not cfg.gtfs_path:
+            log(tr("GTFS_PATH 를 먼저 설정하세요.", "Set GTFS_PATH first."))
+            return 1
+        hits = GtfsSource(cfg).find_stops(args.find_stop)
+        if not hits:
+            log(tr(f"'{args.find_stop}' 가 들어간 정류장이 없습니다.", f"No stop name contains '{args.find_stop}'."))
+            return 1
+        for stop_id, name, parent in hits[:50]:
+            print(f"  GTFS_STOP_ID={stop_id:<16} {name}" + (f"   (parent {parent})" if parent else ""))
+        if len(hits) > 50:
+            print(f"  ... {len(hits) - 50} more")
+        return 0
 
     # 글꼴 검사 (문구가 보드 글꼴에 다 있나)
-    missing = font_missing_chars(list(MESSAGES.values()) + [cfg.walk_label, NOTICE_WAIT, NOTICE_LOADING,
-                                                             NOTICE_NO_TRAIN, NOTICE_ERROR, NOTICE_OFF_HOURS])
+    missing = font_missing_chars(cfg.screen_texts())
     if missing:
-        log(f"경고: 펌웨어 글꼴에 없는 글자가 있어 보드에서 빈칸으로 나옵니다: {''.join(sorted(missing))}"
-            f"  → tools/make_commute_font.py 의 TEXTS 에 넣고 다시 만들어 구우세요")
+        log(tr(f"경고: 펌웨어 글꼴에 없는 글자가 있어 보드에서 빈칸으로 나옵니다: {''.join(sorted(missing))}"
+               f"  → tools/make_commute_font.py 의 TEXTS 에 넣고 다시 만들어 구우세요",
+               f"Warning: these characters are missing from the firmware font and will show as blanks: {''.join(sorted(missing))}"
+               f"  → add them to TEXTS in tools/make_commute_font.py, regenerate, re-flash"))
 
-    # 인터넷 라이브러리 (데모만 쓸 땐 없어도 됨)
+    # 인터넷 라이브러리 (seoul 만 필요)
     try:
         import requests
     except ImportError:
         requests = None
-        if not args.demo:
-            log("requests 가 없습니다. pip3 install -r host/requirements.txt  (데모는 --demo 로 가능)")
-            return 1
 
     demo = args.demo
-    if not demo and not cfg.key:
-        log("SEOUL_SUBWAY_KEY 가 비어 있어 실시간은 못 씁니다. 데모 모드로 시작합니다. (--demo)")
-        demo = True
+    trains_for, realtime, source_note = (None, None, "")
+    if not demo:
+        trains_for, realtime, source_note = build_source(cfg, requests)
+        if trains_for is None:
+            log(source_note)
+            log(tr("데모 모드로 시작합니다. (--demo)", "Falling back to demo mode. (--demo)"))
+            demo = True
     demo_speed = args.demo_speed or cfg.demo_speed
 
     # 보드 연결
@@ -810,15 +1193,17 @@ def main():
     else:
         port = args.port or cfg.port or find_port()
         if not port:
-            log("보드를 찾지 못했습니다. USB 케이블을 확인하거나 --port 로 지정하세요. (보드 없이 보려면 --dry-run)")
+            log(tr("보드를 찾지 못했습니다. USB 케이블을 확인하거나 --port 로 지정하세요. (보드 없이 보려면 --dry-run)",
+                   "No board found. Check the USB cable or pass --port. (Use --dry-run to run without a board)"))
             return 1
         link = BoardLink(port, verbose=args.verbose)
     try:
         link.open()
     except RuntimeError as e:
-        log(f"오류: {e}")
+        log(tr(f"오류: {e}", f"Error: {e}"))
         return 1
-    log(f"보드 연결: {link.port} ({BAUD} baud)" if not args.dry_run else "드라이런: 보낼 줄을 아래에 찍습니다")
+    log(tr(f"보드 연결: {link.port} ({BAUD} baud)", f"Board: {link.port} ({BAUD} baud)") if not args.dry_run
+        else tr("드라이런: 보낼 줄을 아래에 찍습니다", "Dry run: serial lines are printed below"))
 
     # --render 준비
     renderer = None
@@ -827,27 +1212,30 @@ def main():
             sys.path.insert(0, str(ROOT / "tools/preview"))
             import preview as renderer_mod
             renderer = renderer_mod
-            log(f"화면 저장: {args.render}")
+            log(tr(f"화면 저장: {args.render}", f"Saving screen to: {args.render}"))
         except Exception as e:
-            log(f"--render 를 쓸 수 없습니다 ({type(e).__name__}). Pillow 설치와 갈무리9 글꼴을 확인하세요.")
-
-    timetable = Timetable(cfg, requests) if requests else None
-    realtime = Realtime(cfg, requests) if (requests and cfg.key) else None
+            log(tr(f"--render 를 쓸 수 없습니다 ({type(e).__name__}). Pillow 설치와 갈무리9 글꼴을 확인하세요.",
+                   f"--render unavailable ({type(e).__name__}). Check Pillow and the Galmuri9 font."))
 
     def make_planner(is_demo, start_delay=0.0):
         if is_demo:
             clock = DemoClock(demo_speed, start_delay)
             return Planner(cfg, clock.now, demo_trains, realtime=None, speed=demo_speed)
-        return Planner(cfg, datetime.now, timetable.trains_for, realtime=realtime, speed=1)
+        return Planner(cfg, datetime.now, trains_for, realtime=realtime, speed=1)
 
     planner = make_planner(demo)
-    log(f"모드: {'데모 (' + str(demo_speed) + '배속)' if demo else '실시간'}"
-        + (f", {args.start_after:.0f}초 뒤에 화면 켬" if args.start_after else ""))
+    if source_note and trains_for is not None:
+        log(tr(f"열차 시각: {source_note}", f"Train source: {source_note}"))
+    log(tr(f"모드: {'데모 (' + str(demo_speed) + '배속)' if demo else '실시간'}",
+           f"Mode: {'demo (' + str(demo_speed) + 'x clock)' if demo else 'live'}")
+        + (tr(f", {args.start_after:.0f}초 뒤에 화면 켬", f", screen on after {args.start_after:.0f}s") if args.start_after else ""))
     if not demo and cfg.on_at is not None and not args.always_on:
-        log(f"자동 켜짐 {cfg.on_at // 60:02d}:{cfg.on_at % 60:02d} ~ 꺼짐 {cfg.off_at // 60:02d}:{cfg.off_at % 60:02d}"
-            f", 실시간은 {cfg.poll_s}초마다")
+        when = f"{cfg.on_at // 60:02d}:{cfg.on_at % 60:02d} ~ {cfg.off_at // 60:02d}:{cfg.off_at % 60:02d}"
+        log(tr(f"자동 켜짐 {when}", f"Screen on {when}")
+            + (tr(f", 실시간은 {cfg.poll_s}초마다", f", realtime poll every {cfg.poll_s}s") if realtime else ""))
     elif not demo:
-        log(f"스케줄 무시, 바로 켬. 실시간은 {cfg.poll_s}초마다")
+        log(tr("스케줄 무시, 바로 켬", "Ignoring the schedule, screen on now")
+            + (tr(f". 실시간은 {cfg.poll_s}초마다", f". Realtime poll every {cfg.poll_s}s") if realtime else ""))
 
     started = time.time()
     power_sent = None            # 마지막으로 보낸 P| 값
@@ -864,11 +1252,11 @@ def main():
         if power_sent != on:
             if not on and off_hours:
                 # 꺼진 동안 S1 로 켜 보면 옛 화면 대신 이 안내가 보이게
-                link.send(f"N|{NOTICE_OFF_HOURS}")
-                last_frame, last_notice = None, NOTICE_OFF_HOURS
+                link.send(f"N|{cfg.notice('off_hours')}")
+                last_frame, last_notice = None, cfg.notice("off_hours")
             link.send("P|on" if on else "P|off")
             power_sent = on
-            log("화면 켬" if on else "화면 끔")
+            log(tr("화면 켬" if on else "화면 끔", "Screen on" if on else "Screen off"))
 
     def send_mode():
         nonlocal mode_sent
@@ -881,7 +1269,7 @@ def main():
             try:
                 renderer.to_screen(renderer.render_line(line)).save(args.render)
             except Exception as e:
-                log(f"화면 저장 실패: {type(e).__name__}")
+                log(tr(f"화면 저장 실패: {type(e).__name__}", f"Could not save screen: {type(e).__name__}"))
 
     # 보드 READY 를 잠깐 기다린다 (이미 켜져 있던 보드는 안 보냄)
     if not args.dry_run:
@@ -893,45 +1281,46 @@ def main():
         while True:
             now_real = time.time()
             if args.duration and now_real - started >= args.duration:
-                log(f"{args.duration:.0f}초가 지나 종료합니다.")
+                log(tr(f"{args.duration:.0f}초가 지나 종료합니다.", f"{args.duration:.0f}s elapsed — exiting."))
                 break
 
             # 1) 보드가 보낸 것 처리
             for line in link.pop_incoming():
                 if line == "READY":
-                    log("보드 준비됨 — 현재 상태를 다시 보냅니다.")
+                    log(tr("보드 준비됨 — 현재 상태를 다시 보냅니다.", "Board ready — resending the current state."))
                     power_sent = mode_sent = None
                     last_frame = last_notice = None
                     arming = False             # 재부팅되면 보드의 10초 카운트도 사라진다
                 elif line == "BTN|2":
-                    if demo and not cfg.key:
-                        log("S2: 실시간으로 바꾸려면 SEOUL_SUBWAY_KEY 가 필요합니다. 데모를 유지합니다.")
+                    if demo and trains_for is None:
+                        log(tr("S2: 실시간으로 바꾸려면 열차 시각 공급원 설정이 필요합니다. 데모를 유지합니다.",
+                               "S2: live mode needs a configured train source (see host/config.example.env). Staying in demo."))
                     else:
                         demo = not demo
                         planner = make_planner(demo)
                         last_frame = None
-                        log(f"S2: {'데모' if demo else '실시간'} 모드로 전환")
+                        log(tr(f"S2: {'데모' if demo else '실시간'} 모드로 전환", f"S2: switched to {'demo' if demo else 'live'} mode"))
                 elif line == "PWR|arming":
                     manual_on = False          # 켜질 때까지 PC 가 끼어들지 않게
                     arming = True
                     if demo:                   # 데모는 화면이 켜지는 순간 '여유'부터 시작
                         planner = make_planner(demo, S1_ON_DELAY_S)
                         last_frame = None
-                    log(f"S1: {S1_ON_DELAY_S:.0f}초 뒤에 화면이 켜집니다")
+                    log(tr(f"S1: {S1_ON_DELAY_S:.0f}초 뒤에 화면이 켜집니다", f"S1: screen turns on in {S1_ON_DELAY_S:.0f}s"))
                 elif line == "PWR|cancel":
                     arming = False
-                    log("S1: 켜기 취소")
+                    log(tr("S1: 켜기 취소", "S1: power-on cancelled"))
                 elif line.startswith("PWR|"):
                     is_on = line.endswith("on")
                     manual_on = power_sent = is_on
                     arming = False
-                    log(f"S1: 화면 {'켜짐' if is_on else '꺼짐'}")
+                    log(tr(f"S1: 화면 {'켜짐' if is_on else '꺼짐'}", f"S1: screen {'on' if is_on else 'off'}"))
                 elif line.startswith("BTN|"):
-                    log(f"버튼 {line[4:]} 눌림 (예비)")
+                    log(tr(f"버튼 {line[4:]} 눌림 (예비)", f"Button {line[4:]} pressed (unused)"))
                 elif line.startswith("ERR|"):
-                    log(f"보드 오류: {line[4:]}")
+                    log(tr(f"보드 오류: {line[4:]}", f"Board error: {line[4:]}"))
                 else:
-                    log(f"보드: {line}")
+                    log(tr(f"보드: {line}", f"Board: {line}"))
 
             # 2) 켜짐/꺼짐 결정
             off_hours = False
@@ -961,7 +1350,7 @@ def main():
                     link.send(line)
                     render(line)
                     if payload != last_notice:
-                        log(f"안내: {payload}")
+                        log(tr(f"안내: {payload}", f"Notice: {payload}"))
                     last_notice, last_frame, last_send = payload, None, now_real
             else:
                 frame = payload
@@ -973,17 +1362,17 @@ def main():
                     last_frame, last_notice, last_send = frame, None, now_real
                 summary = planner.describe(frame)
                 if changed or summary.split("|")[0] != last_summary.split("|")[0]:
-                    log(("데모 | " if demo else "실시간 | ") + summary)
+                    log((tr("데모 | ", "demo | ") if demo else tr("실시간 | ", "live | ")) + summary)
                     last_summary = summary
 
             time.sleep(1.0)
 
     except KeyboardInterrupt:
         print()
-        log("사용자가 멈췄습니다.")
+        log(tr("사용자가 멈췄습니다.", "Stopped by user."))
     finally:
         link.close()
-        log("포트 닫음.")
+        log(tr("포트 닫음.", "Port closed."))
     return 0
 
 

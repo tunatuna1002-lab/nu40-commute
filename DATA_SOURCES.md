@@ -1,5 +1,9 @@
 # 퇴근 알림 보드 — 데이터 출처 메모 (2026-10-21 조사)
 
+> 2026-10-26 추가: 서울 밖에서도 쓰도록 `TRAIN_SOURCE=times`(고정 시각, 기본값)와 `TRAIN_SOURCE=gtfs`(교통기관 GTFS 정적 피드)를
+> 넣었다. 아래 내용은 전부 `TRAIN_SOURCE=seoul` 에 해당한다. GTFS 는 stops/trips/stop_times/calendar(_dates).txt 만 읽고,
+> 피드는 각 교통기관 사이트나 https://mobilitydatabase.org 에서 받는다. 시험용 피드: `samples/gtfs_sample/`.
+
 나중에 만들 것: 회사 PC(파이썬)가 실시간 도착정보를 받아 "나갈 시각 = 도착 − 도보 − 여유"를 계산해
 NU40 OLED에 "슬슬 짐 싸야 해요" / "지금 나가야 해요!" 를 띄운다. 구조는 ~/nu40-stock-ticker 재사용.
 
