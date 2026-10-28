@@ -8,15 +8,7 @@
 책상 위에 두는 작은 보드입니다. PC 의 파이썬 프로그램이 경기도 버스 도착정보를 받아 **지금 나가서 탈 수 있는 버스**를
 고르고, **NU40 DK (nRF52840) + 0.96" SSD1306 OLED** 가 정류장으로 다가오는 픽셀 버스와 함께 언제 나가야 하는지 알려 줍니다.
 
-*A desk board for Gyeonggi-do (Korea) bus riders: a Python script picks the bus you can still catch from the
-data.go.kr live arrival API, and an NU40 DK + SSD1306 OLED shows a pixel bus rolling to the stop with
-"Plenty of time → Start packing → Leave now! → Run, you'll make it! → Missed it... next one!".
-Screens are English (`LANG=en`) or Korean (`LANG=ko`).*
-
-```
-경기도 버스도착정보 ──▶ PC (host/commute.py) ──USB 시리얼──▶ NU40 DK ──I2C──▶ OLED
-   (data.go.kr)        탈 버스 고르기, 상태 판단            그리기, 카운트다운, 버튼
-```
+동작 순서: 공공데이터포털(경기도 버스 도착정보) → PC 프로그램(`host/commute.py`)이 탈 버스를 고름 → USB 로 NU40 DK 보드에 보냄 → OLED 에 그림.
 
 ![화면](tools/preview/en_all.png)
 
@@ -25,6 +17,146 @@ Screens are English (`LANG=en`) or Korean (`LANG=ko`).*
 PC 프로그램이 멈추거나 30초 넘게 아무것도 보내지 않으면 보드는 잠자는 버스 화면으로 바뀝니다.
 
 ![잠자는 화면](tools/preview/sleep.gif)
+
+*A desk board for Gyeonggi-do (Korea) bus riders: a Python script picks the bus you can still catch from the
+data.go.kr live arrival API, and an NU40 DK + SSD1306 OLED shows a pixel bus rolling to the stop.
+Screens are English (`LANG=en`) or Korean (`LANG=ko`).*
+
+## 빠른 시작 — 세 가지만 넣으면 됩니다
+
+넣을 것은 **공공데이터포털 인증키**, **정류장 번호**, **타는 버스 번호** 세 가지입니다.
+보드(NU40 DK + SSD1306 OLED, [배선](#1-준비물과-배선))와 파이썬 3.9 이상이 깔린 PC 가 필요합니다.
+설치를 LLM 에게 맡기려면 아래 [LLM 에 붙여 넣어 설정하기](#llm-에-붙여-넣어-설정하기)를 쓰세요.
+
+> 이 보드는 **경기도 버스 도착정보**만 씁니다. 경기도 버스가 서는 정류장이어야 합니다.
+
+### 1단계. 공공데이터포털 인증키 받기
+
+1. [공공데이터포털(data.go.kr)](https://www.data.go.kr) 에 회원가입하고 로그인합니다. (가입 때 본인 인증이 있습니다)
+2. 검색창에 `경기도_버스도착정보 조회` 를 검색 → 오픈 API 결과에서 그 항목을 열고 **활용신청** 을 누릅니다.
+   활용 목적은 "개인 프로젝트: 버스 도착 알림 보드" 정도로 쓰면 됩니다. 개발계정은 보통 바로 승인됩니다.
+3. 같은 방법으로 `경기도_정류소 조회` 도 **활용신청** 합니다. (정류장 번호를 정류소 ID 로 바꾸는 데 씁니다)
+4. **마이페이지 → 데이터활용 → Open API → 활용신청 현황** 에서 신청한 API 를 누르면 **일반 인증키** 가 보입니다.
+   Encoding / Decoding 키 중 아무거나 복사합니다. 키는 계정마다 하나라 두 API 에 같은 키를 씁니다.
+   (메뉴 이름은 사이트 개편으로 조금 다를 수 있습니다)
+5. 승인 직후에는 키가 바로 동작하지 않을 수 있습니다. 오류가 나면 잠시 뒤 다시 해 보세요.
+
+### 2단계. 정류장 번호와 버스 번호 확인 (카카오맵 · 카카오버스)
+
+1. 카카오맵이나 카카오버스 앱에서 버스를 **타는** 정류장을 검색해 누릅니다.
+2. 정류장 이름 아래(또는 옆)에 있는 **5자리 번호** 가 정류장 번호입니다. 예: `14320` (`14-320` 처럼 보여도 됩니다)
+   길 건너편 정류장은 번호가 다릅니다. 타는 쪽 정류장인지 확인하세요.
+3. 같은 화면의 노선 목록에서 **타는 버스 번호** 를 적어 둡니다. 예: `6616`, `6638`
+
+### 3단계. 설치하고 세 줄 넣기
+
+```bash
+git clone https://github.com/tunatuna1002-lab/nu40-commute.git
+cd nu40-commute
+python3 -m venv .venv
+.venv/bin/pip install -r host/requirements.txt
+cp host/config.example.env host/.env
+```
+
+`host/.env` 를 메모장 같은 편집기로 열고 맨 위 세 줄을 채웁니다.
+
+```
+BUS_API_KEY=여기에_인증키
+BUS_STOP_NO=14320
+BUS_ROUTES=6616,6638
+```
+
+정류장까지 걸어가는 시간이 4분이 아니면 `WALK_MINUTES` 를, 알림 받을 시간대가 06:30~09:30 이 아니면 `ON_AT` / `OFF_AT` 을 바꿉니다.
+보드에 펌웨어를 굽고([3. 펌웨어 굽기](#3-펌웨어-굽기)) 실행합니다.
+
+```bash
+.venv/bin/python host/commute.py --dry-run --always-on   # 보드 없이 확인
+.venv/bin/python host/commute.py                         # 보드에 표시
+```
+
+로그에 `Stop number 14320 → stationId …` 와 `Bus arrivals: …` 가 보이면 키와 정류장이 맞게 들어간 것입니다.
+`host/.env` 는 깃에 올라가지 않습니다. 인증키를 남에게 보여 주지 마세요.
+
+## LLM 에 붙여 넣어 설정하기
+
+아래 글을 통째로 복사해 ChatGPT, Claude, Gemini 같은 LLM 에 붙여 넣으세요.
+LLM 이 정류장 번호·버스 번호·인증키를 차례로 물어보며 안내합니다.
+Claude Code 처럼 내 컴퓨터에서 명령을 실행할 수 있는 도구라면 설치와 설정까지 직접 해 줍니다.
+
+```text
+너는 "NU40 DK 버스 출발 알림 보드"를 처음 설치하는 사람을 돕는 도우미야.
+저장소: https://github.com/tunatuna1002-lab/nu40-commute
+README.md 와 host/config.example.env 를 읽을 수 있으면 먼저 읽어.
+
+목표: 사용자의 PC 에서 host/commute.py 가 돌고,
+보드 OLED 에 사용자가 타는 버스의 출발 알림이 뜨게 한다.
+
+진행 규칙
+- 한 번에 한 가지만 묻고, 답을 받은 뒤 다음으로 넘어가.
+- 사용자는 초보자일 수 있다. 짧게, 번호를 붙여 설명해.
+- 내 컴퓨터에서 명령을 실행할 수 있으면 직접 하고,
+  없으면 실행할 명령을 하나씩 알려 줘.
+
+1. 먼저 물어볼 것
+ ① 정류장 번호: 카카오맵이나 카카오버스 앱에서 타는 정류장을
+    누르면 이름 아래에 보이는 5자리 번호 (예: 14320, 14-320).
+    길 건너편 정류장은 번호가 다르니 타는 쪽인지 확인시켜.
+ ② 타는 버스 번호: 그 정류장에서 타는 노선, 여러 개면 쉼표로
+    (예: 6616,6638).
+ ③ 공공데이터포털 인증키가 있는지 (키 값 자체는 묻지 마).
+ 선택: 정류장까지 걷는 시간(분, 기본 4),
+       알림 시간대(기본 06:30~09:30), 화면 언어(en/ko, 기본 en).
+
+2. 인증키가 없으면 이렇게 안내해
+ - https://www.data.go.kr 회원가입과 로그인은 사용자가 직접 한다.
+   (본인 인증 포함. 네가 계정을 만들거나 비밀번호를 다루지 마)
+ - 검색창에 "경기도_버스도착정보 조회" → 오픈 API 항목 → [활용신청].
+   활용 목적: "개인 프로젝트: 버스 도착 알림 보드". 보통 바로 승인.
+ - 같은 방법으로 "경기도_정류소 조회" 도 [활용신청].
+ - 마이페이지 → 데이터활용 → Open API → 활용신청 현황 → 신청한 API
+   → "일반 인증키" (Encoding/Decoding 아무거나, 두 API 에 같은 키).
+ - 승인 직후엔 키가 바로 안 될 수 있다. 잠시 뒤 다시 시도.
+
+3. 인증키 다루기
+ - 키를 이 대화창에 붙여 넣지 말라고 안내해.
+ - 사용자가 host/.env 의 BUS_API_KEY= 뒤에 직접 붙여 넣게 해.
+ - 네가 파일을 쓸 수 있으면 키 자리만 비운 .env 를 만들어 둬.
+ - 키 값을 화면에 출력하거나 다시 말하지 마.
+
+4. 설치 (macOS·Linux. Windows 는 .venv\Scripts\python 으로)
+   git clone https://github.com/tunatuna1002-lab/nu40-commute.git
+   cd nu40-commute
+   python3 -m venv .venv
+   .venv/bin/pip install -r host/requirements.txt
+   cp host/config.example.env host/.env
+ - host/.env 에 BUS_STOP_NO, BUS_ROUTES 를 답대로 채우고,
+   WALK_MINUTES, ON_AT, OFF_AT, LANG 도 답에 맞게 바꾼다.
+
+5. 보드
+ - NU40 DK 에 SSD1306 OLED 연결: SDA=P0.26, SCL=P0.27,
+   VCC=3V3 (5V 금지), GND=GND.
+ - 가장 쉬운 굽기: 보드 RESET 을 두 번 눌러 NRF52BOOT 드라이브가
+   뜨면 build/nu40_commute/nu40_commute.uf2 를 거기에 복사.
+ - 잠자는 버스 화면과 "Waiting for PC..." 가 보이면 성공.
+
+6. 확인
+   .venv/bin/python host/commute.py --demo --dry-run
+     (키 없이 프로그램 확인)
+   .venv/bin/python host/commute.py --dry-run --always-on
+     (로그에 "Stop number ... → stationId ..." 와
+      "Bus arrivals: ..." 가 보이면 키·정류장 OK)
+   .venv/bin/python host/commute.py --always-on
+     (보드에 바로 표시)
+   평소: .venv/bin/python host/commute.py (ON_AT~OFF_AT 에만 켜짐)
+
+7. 자주 나는 문제 (로그를 보고 판단해)
+ - "not JSON" / "JSON 이 아닙니다": 활용신청이 안 됐거나 키 활성화 전.
+ - "Stop number ... was not found": 번호 오타이거나
+   경기도 버스가 서지 않는 정류장.
+ - "No bus to catch": 지금 걸어서 탈 수 있는 버스가 없음 (정상일 수 있음).
+ - "No board found": USB 케이블(데이터용인지), --port 로 포트 지정.
+ - 그 밖에는 README 의 "자주 나는 문제" 표를 봐.
+```
 
 ## 화면 상태
 
@@ -44,7 +176,7 @@ PC 프로그램이 멈추거나 30초 넘게 아무것도 보내지 않으면 �
 그래서 이 프로그램은 이렇게 동작합니다.
 
 - **걸어서 닿을 수 있는 버스**(도보 시간 이상 남은 버스)면 고릅니다. 여유분이 모자라면 처음부터 `Leave now!` 나 `Run` 으로 나옵니다.
-- `BUS_ROUTES` 의 여러 노선 중 **먼저 오는 탈 수 있는 버스**를 보여 줍니다. 따라가던 버스보다 90초 넘게 먼저 오는 버스가 보이면 그 버스로 바꿉니다.
+- `BUS_ROUTES` 의 여러 노선 중 **먼저 오는 탈 수 있는 버스**를 보여 줍니다(비워 두면 그 정류장의 모든 노선). 따라가던 버스보다 90초 넘게 먼저 오는 버스가 보이면 그 버스로 바꿉니다.
 - 예측은 분 단위라 호출마다 튑니다. 같은 차량이면 30초 안쪽 변화는 무시합니다. 한 번 호출에 늦어지는 쪽은 +30초, 빨라지는 쪽은 −120초까지만 따라가고, 이번 예측에서 60초(초 단위 예측이면 30초) 넘게는 벗어나지 않습니다.
 - 덜 급한 상태로 돌아갈 때는 60초 여유가 더 생겨야 돌아갑니다. 그래서 화면이 왔다 갔다 하지 않습니다.
 - 나가야 할 때 따라가던 버스가 목록에서 빠지면(정류장을 지나감) 5초 동안 `Missed it` 을 보여 주고 다음 버스로 넘어갑니다.
@@ -111,9 +243,10 @@ cp host/config.example.env host/.env
 | 항목 | 기본값 | 뜻 |
 |---|---|---|
 | `LANG` | `en` | 화면·로그 언어 `en` / `ko` |
-| `BUS_API_KEY` | — | 공공데이터포털 **경기도_버스도착정보 조회** 활용신청 후 받은 일반 인증키 |
-| `BUS_STATION_ID` | — | 정류소 ID (아래처럼 찾기) |
-| `BUS_ROUTES` | — | 탈 노선, 쉼표 구분. 예: `6616,6638` |
+| `BUS_API_KEY` | — | 공공데이터포털 일반 인증키 (**경기도_버스도착정보 조회**, **경기도_정류소 조회** 활용신청) |
+| `BUS_STOP_NO` | — | 카카오맵·카카오버스의 5자리 정류장 번호. 예: `14320`. 시작할 때 정류소 ID 로 바꿈 |
+| `BUS_ROUTES` | — | 타는 버스 번호, 쉼표 구분. 예: `6616,6638` (비우면 그 정류장의 모든 노선) |
+| `BUS_STATION_ID` | — | 9자리 정류소 ID 를 직접 넣을 때 (넣으면 `BUS_STOP_NO` 로 찾지 않음) |
 | `BUS_POLL_SECONDS` | `60` | 도착정보 호출 간격(초, 최소 30) |
 | `BUS_DAILY_LIMIT` | `1000` | 하루 호출 한도 (`0` = 제한 없음) |
 | `WALK_MINUTES` / `BUFFER_MINUTES` | `4` / `1` | 정류소까지 도보 시간 / 여유 (분) |
@@ -121,13 +254,8 @@ cp host/config.example.env host/.env
 | `SERIAL_PORT` | 자동 | 예: `/dev/cu.usbmodem1101`, `COM3` |
 | `DEMO_SPEED` | `8` | 데모 배속 |
 
-**정류소 ID 찾기** — 공공데이터포털에서 **경기도_정류소 조회**도 활용신청한 뒤 브라우저에서 부릅니다.
-
-```
-https://apis.data.go.kr/6410000/busstationservice/v2/getBusStationListv2?serviceKey=인증키&keyword=정류소이름&format=json
-```
-
-응답의 `stationId` 를 `BUS_STATION_ID` 에 넣습니다.
+정류장 번호(`BUS_STOP_NO`)만 넣으면 프로그램이 시작할 때 **경기도_정류소 조회** API 로 9자리 정류소 ID 를 찾습니다.
+같은 번호가 여러 곳이면 첫 번째를 쓰고 로그에 목록을 보여 주니, 다르면 그 ID 를 `BUS_STATION_ID` 에 넣으세요.
 
 ## 5. 실행
 
@@ -232,7 +360,10 @@ PC 는 상태·문구가 바뀌면 바로, 아니면 5초(데모 2초)마다 다
 | 잠자는 화면(`Waiting for PC...`)에서 안 바뀜 | PC 프로그램이 안 돌거나 포트가 다름. 아두이노 시리얼 모니터를 닫았는지 확인 |
 | 화면이 꺼져 있음 | `ON_AT~OFF_AT` 밖이면 정상. S1 을 누르거나 `--always-on` |
 | `No bus to catch` | 걸어서 닿을 수 있는 버스가 없음 (도보 시간보다 가까이 왔거나, 늦은 밤이라 운행이 없음) |
-| `Bus response is not JSON` | 키가 아직 승인 전이거나 하루 한도 초과 |
+| `Bus response is not JSON` / `Stop lookup response is not JSON` | 그 API 의 활용신청이 안 됐거나, 키가 아직 활성화 전이거나, 하루 한도 초과 |
+| `Stop number … was not found` | 정류장 번호 오타, 또는 경기도 버스가 서지 않는 정류장 |
+| `The bus response has no result header` | 정류소 ID 가 틀림. `BUS_STATION_ID` 를 비우고 `BUS_STOP_NO` 로 다시 |
+| 아래 줄 노선 이름에 빈칸 | 그 노선 이름의 한글이 보드 글꼴에 없음 (로그에 경고). 6절 글꼴 참고 |
 | 아래 줄이나 깃발이 이상함 | 펌웨어가 예전 버전(6칸 S 줄). 다시 굽기 |
 | 업로드 실패 `No data received` | RESET 두 번 → 부트로더 드라이브 → 다시 업로드 또는 UF2 복사 |
 
@@ -254,4 +385,4 @@ build/nu40_commute/nu40_commute.uf2       컴파일된 펌웨어 (드래그로 �
 
 - `host/.env` 는 `.gitignore` 에 있어 깃에 올라가지 않습니다.
 - 인증키는 로그에 찍지 않습니다. 오류 메시지에 키가 섞여 있으면 `****` 로 가립니다.
-- 이 프로그램은 경기도 버스도착정보 조회 API 하나만 부릅니다.
+- 이 프로그램은 경기도 버스도착정보 조회 API 와, `BUS_STOP_NO` 를 쓸 때 시작할 때 한 번 경기도 정류소 조회 API 만 부릅니다.

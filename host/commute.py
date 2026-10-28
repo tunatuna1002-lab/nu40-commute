@@ -70,6 +70,7 @@ BUS_BACKOFF_MAX_S = 600       # 호출이 연달아 실패하면 간격을 두 �
 CLOCK_SKEW_WARN_S = 120       # 서버 시각(queryTime)과 PC 시계가 이만큼 넘게 다르면 알려 준다
 
 BUS_ARRIVAL_URL = "https://apis.data.go.kr/6410000/busarrivalservice/v2/getBusArrivalListv2"   # 경기도 버스도착정보 v2
+BUS_STATION_URL = "https://apis.data.go.kr/6410000/busstationservice/v2/getBusStationListv2"   # 경기도 정류소 조회 v2
 FONT_HEADER = ROOT / "firmware/nu40_commute/commute_font.h"
 LANGS = ("en", "ko")
 
@@ -173,7 +174,7 @@ class Config:
                 loaded.append(str(p))
             merged.update(vals)
         for k, v in os.environ.items():                # 환경변수가 최우선 (LANG 은 OS 로캘과 겹치므로 .env 만 본다)
-            if k in ("SERIAL_PORT", "BUS_API_KEY", "BUS_STATION_ID", "BUS_ROUTES"):
+            if k in ("SERIAL_PORT", "BUS_API_KEY", "BUS_STOP_NO", "BUS_STATION_ID", "BUS_ROUTES"):
                 merged[k] = v
         self.loaded_files = loaded
 
@@ -187,7 +188,8 @@ class Config:
         self.port = merged.get("SERIAL_PORT", "").strip()
         # 경기도 버스도착정보 (공공데이터포털 키)
         self.bus_key = merged.get("BUS_API_KEY", "").strip()
-        self.bus_station_id = merged.get("BUS_STATION_ID", "").strip()
+        self.bus_station_id = merged.get("BUS_STATION_ID", "").strip()     # 9자리 stationId. 비우면 BUS_STOP_NO 로 찾는다
+        self.bus_stop_no = re.sub(r"\D", "", merged.get("BUS_STOP_NO", ""))  # 카카오맵·카카오버스의 5자리 정류장 번호 (14-320 도 됨)
         self.bus_routes = [r.strip() for r in re.split(r"[,\s]+", merged.get("BUS_ROUTES", "")) if r.strip()]
         poll = merged.get("BUS_POLL_SECONDS") or merged.get("REALTIME_POLL_SECONDS")   # 예전 이름도 받는다
         self.poll_s = max(MIN_POLL_S, self._int(poll, 60, "BUS_POLL_SECONDS"))
@@ -627,12 +629,14 @@ class BusSource:
         self.calls_day, self.calls = None, 0     # 오늘 호출 수 (하루 한도)
         self.limit_warned = False
         self.clock_warned = False
+        self.font_checked = set()      # 화면 글꼴에 있는지 이미 본 노선 이름
 
     def ok(self):
-        return bool(self.cfg.bus_key and self.cfg.bus_station_id and self.cfg.bus_routes)
+        return bool(self.cfg.bus_key and self.cfg.bus_station_id)
 
     def describe(self):
-        return f"{self.cfg.bus_station_id} / {','.join(self.cfg.bus_routes)}"
+        routes = ",".join(self.cfg.bus_routes) or tr("모든 노선", "all routes")
+        return f"{self.cfg.bus_station_id} / {routes}"
 
     def buses_for(self, day):
         now = self.clock()
@@ -701,15 +705,21 @@ class BusSource:
         if isinstance(rows, dict):
             rows = [rows]
 
-        wanted = {str(r) for r in self.cfg.bus_routes}
+        wanted = {str(r) for r in self.cfg.bus_routes}   # 비어 있으면 이 정류소의 모든 노선
         prev = {t.no: t for t in (self.buses or []) if "#" not in t.no}   # 다듬을 수 있는 건 차량 ID 가 있는 버스만
         buses = []
         seen_route = False             # 고른 노선의 줄이 응답에 있었나 (있는데 버스가 없으면 진짜로 없는 것)
         for row in rows:
             route = str(row.get("routeName", "")).strip()
-            if route not in wanted:
+            if wanted and route not in wanted:
                 continue
             seen_route = True
+            if route not in self.font_checked:
+                self.font_checked.add(route)
+                missing = font_missing_chars([route])
+                if missing:
+                    log(tr(f"노선 이름 '{route}' 의 글자 {''.join(sorted(missing))} 가 보드 글꼴에 없어 빈칸으로 나옵니다.",
+                           f"Route name '{route}' has characters missing from the board font: {''.join(sorted(missing))}"))
             for n in ("1", "2"):
                 eta, precise = self._seconds(row, n)
                 if eta is None:
@@ -787,15 +797,60 @@ class BusSource:
 # ─────────────────────────────────────────────────────────────
 # 버스 정보 준비
 # ─────────────────────────────────────────────────────────────
+def find_station(cfg, requests_mod, stop_no):
+    """카카오맵·카카오버스에 보이는 5자리 정류장 번호(mobileNo) → 도착정보 API 가 쓰는 9자리 stationId.
+    공공데이터포털 '경기도_정류소 조회' 활용신청이 필요하다 (키는 버스도착정보와 같은 키).
+    돌려주는 값: (stationId, '정류장 이름 (지역)') 또는 (None, 이유)."""
+    key = unquote(cfg.bus_key)
+    try:
+        resp = requests_mod.get(BUS_STATION_URL, params={"serviceKey": key, "format": "json", "keyword": stop_no},
+                                timeout=HTTP_TIMEOUT)
+    except Exception as e:               # 예외 메시지에 URL(키)이 들어갈 수 있어 형만 찍는다
+        return None, tr(f"정류소 조회 호출 실패: {type(e).__name__}", f"Stop lookup request failed: {type(e).__name__}")
+    if resp.status_code != 200:
+        return None, tr(f"정류소 조회 호출 실패: HTTP {resp.status_code}", f"Stop lookup request failed: HTTP {resp.status_code}")
+    try:
+        body = resp.json()
+    except ValueError:
+        return None, tr("정류소 조회 응답이 JSON 이 아닙니다. 공공데이터포털에서 '경기도_정류소 조회' 를 활용신청했는지, "
+                        "키가 활성화됐는지(신청 직후엔 시간이 걸릴 수 있음) 확인하세요.",
+                        "Stop lookup response is not JSON — apply for '경기도_정류소 조회' on data.go.kr and make sure "
+                        "the key is active (it can take a while after approval).")
+    rows = ((body.get("response") or {}).get("msgBody") or {}).get("busStationList") or []
+    if isinstance(rows, dict):
+        rows = [rows]
+    hits = [r for r in rows if re.sub(r"\D", "", str(r.get("mobileNo", ""))) == stop_no]
+    if not hits:
+        return None, tr(f"정류장 번호 {stop_no} 를 찾지 못했습니다. 번호가 맞는지, 경기도 버스가 서는 정류장인지 확인하세요.",
+                        f"Stop number {stop_no} was not found. Check the number and that Gyeonggi-do buses stop there.")
+    if len(hits) > 1:
+        log(tr(f"정류장 번호 {stop_no} 가 {len(hits)}곳입니다. 첫 번째를 씁니다. 다르면 BUS_STATION_ID 를 직접 넣으세요: "
+               + ", ".join(f"{h.get('stationId')} {h.get('stationName')}" for h in hits),
+               f"Stop number {stop_no} matches {len(hits)} stops; using the first. Set BUS_STATION_ID to pick another: "
+               + ", ".join(f"{h.get('stationId')} {h.get('stationName')}" for h in hits)))
+    r = hits[0]
+    return str(r.get("stationId")), f"{r.get('stationName', '')} ({r.get('regionName', '')})"
+
+
 def make_source(cfg, requests_mod):
     """(buses_for, 설명) 을 돌려준다. 못 만들면 (None, 이유)."""
     if requests_mod is None:
         return None, tr("requests 가 없습니다. pip3 install -r host/requirements.txt",
                         "requests is not installed. pip3 install -r host/requirements.txt")
+    if not cfg.bus_key:
+        return None, tr("BUS_API_KEY 가 비어 있습니다. 공공데이터포털 인증키를 host/.env 에 넣으세요 (README '빠른 시작').",
+                        "BUS_API_KEY is empty. Put your data.go.kr key in host/.env (README quick start).")
+    if not cfg.bus_station_id:
+        if not cfg.bus_stop_no:
+            return None, tr("BUS_STOP_NO(카카오맵·카카오버스의 5자리 정류장 번호)가 비어 있습니다. host/.env 를 보세요.",
+                            "BUS_STOP_NO (the 5-digit stop number shown in KakaoMap / Kakao Bus) is empty. See host/.env.")
+        station_id, note = find_station(cfg, requests_mod, cfg.bus_stop_no)
+        if station_id is None:
+            return None, note
+        cfg.bus_station_id = station_id
+        log(tr(f"정류장 번호 {cfg.bus_stop_no} → stationId {station_id} ({note})",
+               f"Stop number {cfg.bus_stop_no} → stationId {station_id} ({note})"))
     src = BusSource(cfg, requests_mod)
-    if not src.ok():
-        return None, tr("버스 설정이 모자랍니다 (BUS_API_KEY, BUS_STATION_ID, BUS_ROUTES). host/.env 를 보세요.",
-                        "Bus is not configured (BUS_API_KEY, BUS_STATION_ID, BUS_ROUTES). See host/config.example.env.")
     return src.buses_for, tr(f"경기도 버스도착정보 — 정류소 {src.describe()}",
                              f"Gyeonggi bus arrivals — stop {src.describe()}")
 
