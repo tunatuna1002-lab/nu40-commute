@@ -20,9 +20,9 @@ train/bus times ──▶ PC (python host/commute.py) ──USB serial──▶ 
 |---|---|---|---|
 | relax | more than 3 min | `Plenty of time` | |
 | pack | 3 min or less | `Start packing` | |
-| go | 1 min or less | `Leave now!` | character hops, text blinks, LED1 on |
-| run | up to 2 min past the leave line | `Run, you'll make it!` | same as go |
-| missed | later than that | `Missed it... next one!` | held 5 s, then the next train |
+| go | 1 min or less, and you can still walk there | `Leave now!` | character hops, text blinks, LED1 on |
+| run | less than the walk time left, but at least 80 % of it | `Run, you'll make it!` | same as go |
+| missed | less than 80 % of the walk time left | `Missed it... next one!` | held 5 s, then the next train |
 
 **Leave line = train time − WALK_MINUTES − BUFFER_MINUTES** (default 10 + 1 = 11 min before the train).
 The board has no WiFi, so the PC does all the thinking and the board only draws what it is told (it counts the
@@ -48,6 +48,10 @@ under 30 s and follows at most +30 s later / −120 s earlier per poll, and a ca
 margin before the board steps back. A tracked bus that drops out of the list while you should be leaving is shown
 as "Missed it" for 5 s. A response with none of your routes is treated as a glitch once (the second in a row
 clears the list); a route that is listed with no arrival time (e.g. the bus is at the stop) counts as gone.
+If another catchable bus (any route in `BUS_ROUTES`) will arrive more than 90 s before the tracked one, the board
+switches to it. Failed calls back off (60 s, 120 s, 240 s … up to 10 min), and `BUS_DAILY_LIMIT` (default 1000)
+stops polling for the rest of the day. Predictions are stamped when the response arrives; if the PC clock differs
+from the server's `queryTime` by more than 2 min, the host warns once (the countdown runs on the PC clock).
 
 The planner, the walk-time maths, the ON/OFF window and the buttons are shared by all four.
 
@@ -206,9 +210,9 @@ build/nu40_commute/*.uf2        pre-built firmware for drag-and-drop flashing
 |---|---|---|---|
 | 여유 | 3분 넘게 남음 | `아직 여유 있어요` | `Plenty of time` |
 | 짐 싸기 | 3분 이하 | `슬슬 짐 싸야 해요` | `Start packing` |
-| 출발 | 1분 이하 | `지금 출발해야 해요!` (캐릭터가 깡총, 글자 깜빡, LED1 켜짐) | `Leave now!` |
-| 뛰면 가능 | 출발선 지나 2분까지 | `지금 뛰면 가능해요!` (보드엔 출발과 같게) | `Run, you'll make it!` |
-| 놓침 | 지남 | `놓쳤어요… 다음 거!` 5초 → 다음 열차로 | `Missed it... next one!` |
+| 출발 | 1분 이하 (여유분을 다 써도 걸어서 닿는 동안) | `지금 출발해야 해요!` (캐릭터가 깡총, 글자 깜빡, LED1 켜짐) | `Leave now!` |
+| 뛰면 가능 | 도착까지 도보 시간보다 적게, 도보 시간의 80% 이상 남음 | `지금 뛰면 가능해요!` (보드엔 출발과 같게) | `Run, you'll make it!` |
+| 놓침 | 도보 시간의 80%보다 적게 남음 | `놓쳤어요… 다음 거!` 5초 → 다음 열차로 | `Missed it... next one!` |
 
 **나갈 시각 = 열차 도착 − 도보 10분 − 여유 1분.**
 환승이 있어도 나갈 시각은 삼성역 열차만 보면 되므로 삼성역만 조회합니다.
@@ -227,6 +231,9 @@ build/nu40_commute/*.uf2        pre-built firmware for drag-and-drop flashing
 60초 여유가 더 생겨야 돌아갑니다. 나가야 할 때 따라가던 버스가 목록에서 빠지면 5초 동안 '놓침'을 보여 주고,
 고른 노선이 응답에서 통째로 한 번 빠진 건 일시적인 것으로 봅니다(두 번 연속이면 비웁니다).
 노선 줄은 있는데 도착 예정이 없으면(정류장에 닿음 등) 지나간 것으로 봅니다.
+따라가던 버스보다 90초 넘게 먼저 오는 '탈 수 있는' 버스(`BUS_ROUTES` 의 다른 노선 포함)가 보이면 그 버스로 바꿉니다.
+호출이 실패하면 간격을 60초, 120초, 240초 … 최대 10분까지 늘리고, `BUS_DAILY_LIMIT`(기본 1000)에 닿으면 그날은 더 부르지 않습니다.
+예측은 응답을 받은 때 기준으로 붙이고, PC 시계가 서버 시각(`queryTime`)과 2분 넘게 다르면 한 번 알려 줍니다.
 
 ![화면 4종](tools/preview/all.png)
 
@@ -332,6 +339,7 @@ cp host/config.example.env host/.env
 | `LANG` | `en` | 화면 문구·로그 언어. 한글은 `ko` (OS 환경변수가 아니라 `.env` 만 봄) |
 | `TRAIN_SOURCE` | `times` | 시각 공급원 `times` / `gtfs` / `seoul` / `bus`. 서울시 API 는 `seoul`, 경기도 버스는 `bus` |
 | `BUS_API_KEY` / `BUS_STATION_ID` / `BUS_ROUTES` | — | (bus) 공공데이터포털 키 / 정류소 ID / 노선 목록 `6616,6638` |
+| `BUS_DAILY_LIMIT` | `1000` | (bus) 하루 호출 한도. 닿으면 그날은 더 부르지 않음 (`0` = 제한 없음) |
 | `TRAIN_TIMES` | — | (times) 출발 시각 목록 `18:02,18:12,…` |
 | `TRAIN_EVERY` / `TRAIN_FIRST` / `TRAIN_LAST` | — / `05:00` / `23:59` | (times) N분 간격으로 시각 만들기 |
 | `TRAIN_DAYS` | (매일) | (times) 운행 요일 `mon-fri`, `weekdays`, `weekends`, `mon,wed,fri` |

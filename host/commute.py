@@ -21,12 +21,14 @@ commute.py — picks the train you can still catch and tells the NU40 DK board w
     재서 고른 열차에도 같은 지연을 얹습니다. 고른 열차 자체가 보이면 그 값을 그대로 씁니다.
   times / gtfs 는 실시간이 없으므로 시각표 그대로 고릅니다. 고르는 규칙·상태·버튼은 세 공급원이 같습니다.
 
-상태 (나갈 때까지 남은 초 = leave_in = 열차 도착까지 − 11분)        LANG=ko                LANG=en
-  relax  leave_in > 180     "아직 여유 있어요"        "Plenty of time"
-  pack   leave_in ≤ 180     "슬슬 짐 싸야 해요"       "Start packing"
-  go     leave_in ≤ 60      "지금 출발해야 해요!"     "Leave now!"
-  run    leave_in < 0       "지금 뛰면 가능해요!"     "Run, you'll make it!"   (도착 9~11분 전. 보드에는 go 로 보낸다)
-  missed leave_in < -120    "놓쳤어요… 다음 거!"      "Missed it... next one!" → 5초 보여 주고 다음 열차로
+상태 (leave_in = 나갈 때까지 남은 초 = 도착까지 − (도보 + 여유), walk = 도보 시간)
+                                    LANG=ko                LANG=en
+  relax  leave_in > 180             "아직 여유 있어요"        "Plenty of time"
+  pack   leave_in ≤ 180             "슬슬 짐 싸야 해요"       "Start packing"
+  go     leave_in ≤ 60              "지금 출발해야 해요!"     "Leave now!"   (여유분을 다 써도 걸어서 닿는 동안은 go)
+  run    도착까지 < walk            "지금 뛰면 가능해요!"     "Run, you'll make it!"   (보드에는 go 로 보낸다)
+  missed 도착까지 < walk × 0.8      "놓쳤어요… 다음 거!"      "Missed it... next one!" → 5초 보여 주고 다음 차로
+         (서두르면 걷는 시간의 80% 에 간다고 본다: 걸어서 10분 → 뛰어서 8분, 걸어서 4분 → 3분 12초)
 
 실행:
     python3 host/commute.py                       # .env 의 TRAIN_SOURCE 로 (보드 연결)
@@ -80,6 +82,9 @@ BUS_EARLIER_S = 120           # 버스: 빨라지는 쪽은 더 빨리 따라간
 BUS_MAX_LAG_S = 60            # 버스: 다듬은 도착은 이번 예측에서 이 이상 벗어나지 않는다 (분 단위 예측의 오차 한도).
                               #  초 단위 예측(predictTimeSec)이면 BUS_DEADBAND_S 까지만. 늦어진 버스를 놓침으로 잘못 보이지 않게
 SAME_BUS_S = 90               # 버스 이름(차량 ID·번호판·순번)이 바뀌어도 같은 노선에서 도착이 이만큼 안쪽이면 같은 버스로 본다
+SWITCH_S = 90                 # 따라가던 차보다 이만큼 넘게 먼저 오는 '탈 수 있는' 차가 보이면 그 차로 바꾼다 (6616 ↔ 6638)
+BUS_BACKOFF_MAX_S = 600       # 버스 호출이 연달아 실패하면 간격을 두 배씩 늘린다. 최대 10분
+CLOCK_SKEW_WARN_S = 120       # 서버 시각(queryTime)과 PC 시계가 이만큼 넘게 다르면 알려 준다
 
 REALTIME_URL = "http://swopenAPI.seoul.go.kr/api/subway/{key}/json/realtimeStationArrival/0/10/{station}"
 TIMETABLE_URL = "http://openapi.seoul.go.kr:8088/{key}/json/SearchSTNTimeTableByIDService/1/300/{code}/{week}/2/"
@@ -234,6 +239,8 @@ class Config:
         self.bus_key = merged.get("BUS_API_KEY", "").strip()
         self.bus_station_id = merged.get("BUS_STATION_ID", "").strip()
         self.bus_routes = [r.strip() for r in re.split(r"[,\s]+", merged.get("BUS_ROUTES", "")) if r.strip()]
+        # 하루 호출 한도 (공공데이터포털 개발계정은 보통 하루 1,000건). 넘기면 그날은 더 부르지 않는다. 0 = 제한 없음
+        self.bus_daily_limit = max(0, self._int(merged.get("BUS_DAILY_LIMIT"), 1000, "BUS_DAILY_LIMIT"))
         # 공통
         self.walk_min = self._int(merged.get("WALK_MINUTES"), 10, "WALK_MINUTES")
         self.buffer_min = self._int(merged.get("BUFFER_MINUTES"), 1, "BUFFER_MINUTES")
@@ -257,13 +264,17 @@ class Config:
         return (self.walk_min + self.buffer_min) * 60
 
     @property
+    def walk_s(self):
+        return self.walk_min * 60
+
+    @property
     def pick_floor_s(self):
         """새로 고를 차가 적어도 이만큼은 남아 있어야 한다.
         열차는 시간표가 있고 자주 와서 '지금 나가면 여유 있게 타는 차'(leave_s)부터 고른다.
         버스는 정류소마다 다음 2대만 보이고 배차가 길어서, 여유분을 못 챙겨도 걸어서 닿는 버스(도보 시간)면 고른다.
-        그 버스는 처음부터 go/run 으로 나온다. 고르자마자 '놓침'이 되지 않게 놓침 기준보다는 늘 크게 잡는다."""
+        그 버스는 처음부터 go/run 으로 나온다. 놓침 기준(도보 × RUN_PACE)보다 늘 커서 고르자마자 놓침이 되지 않는다."""
         if self.source == "bus":
-            return max(self.walk_min * 60, self.leave_s - RUN_S)
+            return self.walk_s
         return self.leave_s
 
     # ── 화면 문구 (언어별) ──
@@ -841,15 +852,17 @@ class Frame:
                 and self.msg == other.msg)
 
 
-RUN_S = 120                   # 출발선을 넘겨도 이만큼은 "뛰면 가능" (여유분을 다 쓰고 1~2분 서두르면 되는 구간)
+RUN_PACE = 0.8                # 서두르면 걷는 시간의 이만큼에 간다 (걸어서 10분 → 뛰어서 8분)
 STATE_RANK = {"relax": 0, "pack": 1, "go": 2, "run": 3, "missed": 4}   # 급한 순서
 
 
-def state_for(leave_in):
-    if leave_in < -RUN_S:
+def state_for(arrive_in, leave_s, walk_s):
+    """도착까지 남은 초 → 상태. 걸어서 닿는 동안은 go, 걸어서는 못 닿고 뛰면 닿을 때 run."""
+    if arrive_in < walk_s * RUN_PACE:
         return "missed"
-    if leave_in < 0:
+    if arrive_in < walk_s:
         return "run"
+    leave_in = arrive_in - leave_s
     if leave_in <= 60:
         return "go"
     if leave_in <= 180:
@@ -891,12 +904,15 @@ class Planner:
                 return seen
         return train.arrive + timedelta(seconds=self._delay())
 
-    def _settle(self, leave_in):
+    def _state(self, arrive_in):
+        return state_for(arrive_in, self.cfg.leave_s, self.cfg.walk_s)
+
+    def _settle(self, arrive_in):
         """상태 정하기. 더 급해질 때는 바로, 덜 급해질 때는 STATE_HYST_S 만큼 여유가 더 생겨야 돌아간다."""
-        raw = state_for(leave_in)
+        raw = self._state(arrive_in)
         if self.state is None or STATE_RANK[raw] >= STATE_RANK[self.state]:
             return raw
-        calmer = state_for(leave_in - STATE_HYST_S)
+        calmer = self._state(arrive_in - STATE_HYST_S)
         return calmer if STATE_RANK[calmer] < STATE_RANK[self.state] else self.state
 
     def _pick(self, trains, now):
@@ -939,11 +955,20 @@ class Planner:
                 return "notice", self.cfg.notice("no_train")
             log(tr(f"탈 열차: {self.current} (지연 보정 {self._delay():+d}초)",
                    f"Next catchable train: {self.current} (delay correction {self._delay():+d}s)"))
+        elif self.missed_at is None and self.current.label:
+            # 버스만: 따라가던 버스보다 확실히 먼저 오는 '탈 수 있는' 버스가 생기면 그 버스로 바꾼다 (다른 노선, 늦어진 버스).
+            # 열차는 같은 선로에서 앞지르지 않는다. 지연 추정이 엇갈려도 갈아타지 않게 버스에만 쓴다
+            better = self._pick(trains, now)
+            if better is not None and better.no != self.current.no and \
+                    self._eta(better) < self._eta(self.current) - timedelta(seconds=SWITCH_S):
+                log(tr(f"더 먼저 오는 차로 바꿈: {self.current} → {better}",
+                       f"Switching to a sooner one: {self.current} → {better}"))
+                self.current = better
+                self.state = None
 
         arrive_in = (self._eta(self.current) - now).total_seconds()
-        leave_in = arrive_in - self.cfg.leave_s
         # 놓침은 한번 시작하면 MISSED_HOLD_S 동안 그대로 (예측이 다시 늘어나도 되돌리지 않는다)
-        state = "missed" if self.missed_at is not None else self._settle(leave_in)
+        state = "missed" if self.missed_at is not None else self._settle(arrive_in)
 
         if state == "missed":
             if self.missed_at is None:
@@ -1169,6 +1194,10 @@ class BusSource:
         self.trains = None             # 마지막으로 성공한 결과. 처음 실패하면 None → '오류' 화면
         self.fetched_at = None
         self.kept_empty = False        # 빈 응답에 이전 목록을 한 번 남겨 뒀나
+        self.fails = 0                 # 연달아 실패한 호출 수 (호출 간격을 늘린다)
+        self.calls_day, self.calls = None, 0     # 오늘 호출 수 (하루 한도)
+        self.limit_warned = False
+        self.clock_warned = False
 
     def ok(self):
         return bool(self.cfg.bus_key and self.cfg.bus_station_id and self.cfg.bus_routes)
@@ -1180,9 +1209,25 @@ class BusSource:
         now = self.clock()
         if day != now.date():          # 버스는 '지금' 정보만 있다 (어제·내일 시간표 없음)
             return []
-        if self.polled_at is None or (now - self.polled_at).total_seconds() >= self.cfg.poll_s:
-            self.polled_at = now
-            self._poll(now)
+        if self.calls_day != now.date():
+            self.calls_day, self.calls, self.limit_warned = now.date(), 0, False
+        if self.polled_at is None or (now - self.polled_at).total_seconds() >= self._interval():
+            limit = self.cfg.bus_daily_limit
+            if limit and self.calls >= limit:
+                if not self.limit_warned:
+                    self.limit_warned = True
+                    log(tr(f"버스 호출이 오늘 {limit}건에 닿아 내일까지 멈춥니다 (BUS_DAILY_LIMIT).",
+                           f"Bus API calls reached today's limit of {limit}; pausing until tomorrow (BUS_DAILY_LIMIT)."))
+            else:
+                self.polled_at = now
+                self.calls += 1
+                if self._poll(now):
+                    self.fails = 0
+                else:
+                    self.fails += 1
+                    if self.fails >= 2:
+                        log(tr(f"버스 호출 {self.fails}번 연속 실패 → 다음 호출은 {self._interval()}초 뒤",
+                               f"{self.fails} bus calls failed in a row → next call in {self._interval()}s"))
         # 호출이 계속 실패하면 오래된 값을 믿지 않는다 (5분 넘으면 오류 화면)
         if self.trains is not None and self.fetched_at is not None \
                 and (now - self.fetched_at).total_seconds() > 300:
@@ -1190,28 +1235,34 @@ class BusSource:
         return self.trains
 
     def _poll(self, now):
+        """한 번 호출. 응답을 받아 해석했으면 True (결과가 비어 있어도), 호출·응답 오류면 False."""
         key = unquote(self.cfg.bus_key)      # 인코딩된 키(%2B 등)를 붙여 넣어도, 아닌 키도 똑같이 동작
         params = {"serviceKey": key, "format": "json", "stationId": self.cfg.bus_station_id}
         try:
             resp = self.requests.get(BUS_ARRIVAL_URL, params=params, timeout=HTTP_TIMEOUT)
         except Exception as e:               # 예외 메시지에 URL(키)이 들어갈 수 있어 형만 찍는다
             log(tr(f"버스 도착정보 호출 실패: {type(e).__name__}", f"Bus arrival request failed: {type(e).__name__}"))
-            return
+            return False
         if resp.status_code != 200:
             log(tr(f"버스 도착정보 호출 실패: HTTP {resp.status_code}", f"Bus arrival request failed: HTTP {resp.status_code}"))
-            return
+            return False
         try:
             body = resp.json()
         except ValueError:
             # 인증 오류 등은 XML 로 온다. 내용은 찍지 않고 안내만
             log(tr("버스 응답이 JSON 이 아닙니다. 키가 승인됐는지(활용신청), 호출 한도를 넘지 않았는지 확인하세요.",
                    "Bus response is not JSON — check that the key is approved and the daily limit is not exceeded."))
-            return
+            return False
         head = (body.get("response") or {}).get("msgHeader") or {}
         if str(head.get("resultCode")) not in ("0", "4"):       # 0 정상, 4 결과 없음
             detail = self.cfg.mask(f"{head.get('resultCode')} {head.get('resultMessage')}").replace(key, "****")
             log(tr(f"버스 응답 오류: {detail}", f"Bus API error: {detail}"))
-            return
+            return False
+        # 예측은 '응답을 받은 때' 기준으로 절대 시각에 붙인다 (요청이 HTTP_TIMEOUT 초까지 걸릴 수 있다).
+        # queryTime 은 서버가 조회한 시각일 뿐 예측이 만들어진 시각이 아니어서 나이 보정에는 쓰지 않고,
+        # PC 시계가 크게 틀렸는지 알려 주는 데만 쓴다 (카운트다운은 PC 시계로 돈다).
+        now = self.clock()
+        self._check_clock(head.get("queryTime"), now)
         rows = ((body.get("response") or {}).get("msgBody") or {}).get("busArrivalList") or []
         if isinstance(rows, dict):
             rows = [rows]
@@ -1254,11 +1305,34 @@ class BusSource:
             self.fetched_at = now
             log(tr("버스 도착정보: 고른 노선이 안 보여 이전 값을 한 번 더 씁니다",
                    "Bus arrivals: no selected route in the response — keeping the previous list once"))
-            return
+            return True
         self.kept_empty = False
         self.trains, self.fetched_at = trains, now
         log(tr(f"버스 도착정보: {', '.join(f'{t.label} {mmss((t.arrive - now).total_seconds())}' for t in trains) or '도착 예정 없음'}",
                f"Bus arrivals: {', '.join(f'{t.label} {mmss((t.arrive - now).total_seconds())}' for t in trains) or 'none'}"))
+        return True
+
+    def _interval(self):
+        """다음 호출까지 간격. 처음 실패하면 한 번은 평소 간격으로 다시 부르고, 그 뒤로는 두 배씩 늘린다 (BUS_BACKOFF_MAX_S 까지)."""
+        return min(self.cfg.poll_s * 2 ** max(0, self.fails - 1), max(self.cfg.poll_s, BUS_BACKOFF_MAX_S))
+
+    def _check_clock(self, raw, now):
+        """서버 시각(queryTime)과 PC 시계가 CLOCK_SKEW_WARN_S 넘게 다르면 한 번 알려 준다."""
+        if self.clock_warned or not raw:
+            return
+        for fmt in ("%Y-%m-%d %H:%M:%S.%f", "%Y-%m-%d %H:%M:%S", "%Y%m%d%H%M%S"):
+            try:
+                server = datetime.strptime(str(raw).strip(), fmt)
+                break
+            except ValueError:
+                continue
+        else:
+            return
+        skew = (now - server).total_seconds()
+        if abs(skew) > CLOCK_SKEW_WARN_S:
+            self.clock_warned = True
+            log(tr(f"PC 시계가 버스 서버보다 {skew:+.0f}초 다릅니다. 시계를 맞추세요 (남은 시간이 그만큼 틀립니다).",
+                   f"The PC clock is {skew:+.0f}s off the bus server. Fix the clock (countdowns will be off by that much)."))
 
     @staticmethod
     def _seconds(row, n):

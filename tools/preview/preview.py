@@ -40,7 +40,7 @@ SMALL = GALMURI
 WALK_S = 4 * 60
 BUFFER_S = 60
 LEAVE_S = WALK_S + BUFFER_S          # 출발선: 도착 5분 전 (도보 4 + 여유 1)
-RUN_S = 120                          # 출발선을 넘겨도 이만큼은 "뛰면 가능" (host/commute.py 의 RUN_S)
+RUN_PACE = 0.8                       # 서두르면 걷는 시간의 이만큼에 간다 (host/commute.py 의 RUN_PACE)
 WINDOW_S = 16 * 60                   # 도로 왼쪽 끝 = 도착 16분 전
 RAIL_Y = 50
 STATION_X = 116                      # 버스 앞코가 닿는 자리
@@ -191,12 +191,13 @@ def bubble(d, x0, y0, x1, y1, tail):
         d.point((cx, y1 + 1), 1); d.point((cx + 1, y1 + 1), 1); d.point((cx, y1 + 2), 1)
 
 
-def state_for(leave_in):
-    """나갈 때까지 남은 초 → 상태. host/commute.py 와 같은 기준."""
-    if leave_in < -RUN_S:
+def state_for(arrive_in, leave_s=LEAVE_S, walk_s=WALK_S):
+    """도착까지 남은 초 → 상태. host/commute.py 와 같은 기준."""
+    if arrive_in < walk_s * RUN_PACE:
         return "missed"
-    if leave_in < 0:
+    if arrive_in < walk_s:
         return "run"
+    leave_in = arrive_in - leave_s
     if leave_in <= 60:
         return "go"
     if leave_in <= 180:
@@ -236,8 +237,7 @@ def render(arrive_in, train_clock, tick=0, state=None, bottom_left=None, bottom_
     texts = MESSAGES_BY_LANG[lang]
     img = Image.new("1", (W, H), 0)
     d = ImageDraw.Draw(img)
-    leave_in = arrive_in - leave_s
-    state = state or state_for(leave_in)
+    state = state or state_for(arrive_in, leave_s)
     msg = msg if msg is not None else texts[state]
     if state == "run":                     # 보드는 run 을 go 처럼 그린다 (문구만 다르다)
         state = "go"
