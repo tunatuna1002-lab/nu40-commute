@@ -50,6 +50,9 @@ TOP_BUBBLE = (17, 0, 127, 14)        # 위 말풍선 (x0, y0, x1, y1)
 TOP_TEXT_Y = 2
 BOTTOM_TEXT_Y = 52
 NOTICE_Y = 26                        # 안내 화면 글자 윗줄
+SLEEP_RAIL_Y = 36                    # 잠자는 화면 도로 줄
+SLEEP_BUS_X = 44                     # 잠자는 버스 왼쪽 끝 x
+SLEEP_TEXT_Y = 45                    # 잠자는 화면 한 줄 글자 윗줄
 
 # ── 픽셀 그림 (# = 켜진 픽셀) ─────────────────────────────
 BUS = """
@@ -67,6 +70,48 @@ BUS = """
 """.strip().splitlines()
 BUS_W = len(BUS[0])                  # 32
 BUS_H = len(BUS)                     # 11
+
+# 잠자는 버스: 창문을 감은 눈처럼 한 줄로 닫고 전조등을 끈 모양 (32x11)
+SLEEP_BUS = """
+....########################....
+...#........................#...
+..#.........................##..
+..#..###.###.###.###.###.##.#.#.
+..#.........................#..#
+..#............................#
+..##############################
+..#............................#
+..##############################
+..###..###............###..###..
+...##..##..............##..##...
+""".strip().splitlines()
+Z_SMALL = [                          # 떠오르는 작은 z (4x4)
+    "####",
+    "..#.",
+    ".#..",
+    "####",
+]
+Z_BIG = [                            # 떠오르는 큰 Z (5x5)
+    "#####",
+    "...#.",
+    "..#..",
+    ".#...",
+    "#####",
+]
+MOON = [                             # 초승달 (7x7)
+    "..####.",
+    ".##....",
+    "##.....",
+    "##.....",
+    "##.....",
+    ".##....",
+    "..####.",
+]
+STAR = [                             # 작은 별 (3x3)
+    ".#.",
+    "###",
+    ".#.",
+]
 
 FACES = {
     "relax": """
@@ -161,7 +206,7 @@ MESSAGES_BY_LANG = {
 }
 MESSAGES = MESSAGES_BY_LANG["ko"]          # 기본(한글) 시안
 BOOT_NOTICE = ("연결 대기 중…", "Waiting for PC...")   # 펌웨어 부팅 화면 두 줄 (PC 가 아직 아무것도 안 보냈을 때)
-BOOT_Y = (18, 32)
+BOOT_Y = (39, 51)
 
 
 def sprite(d, rows, x, y):
@@ -295,11 +340,31 @@ def render_sleep(text="", tick=0):
     text 가 비면(켜진 직후, PC 가 30초 넘게 조용할 때) 한글/영어 두 줄, 아니면(Z| 줄) 그 글자 한 줄."""
     img = Image.new("1", (W, H), 0)
     d = ImageDraw.Draw(img)
+
+    # 밤하늘: 초승달 + 별 + 버스 위에서 떠오르는 z / Z (2틱=400ms 마다 1px 위로, 20틱=4초 주기)
+    step = (tick % 20) // 2
+    sprite(d, MOON, 14, 4)
+    sprite(d, STAR, 32, 7)
+    sprite(d, STAR, 104, 6)
+    sprite(d, Z_SMALL, 66 + step // 2, 19 - step)
+    sprite(d, Z_BIG, 71 + step // 2, 10 - step)
+
+    # 도로 + 멈춘 점선 차선 + 정류장 + 잠든 버스
+    d.line((0, SLEEP_RAIL_Y, 127, SLEEP_RAIL_Y), fill=1)
+    for x in range(1, 128, 6):
+        d.point((x, SLEEP_RAIL_Y + 1), 1)
+        if x + 1 < 128:
+            d.point((x + 1, SLEEP_RAIL_Y + 1), 1)
+    sprite(d, STATION_POLE, 80, SLEEP_RAIL_Y - 8)
+    sprite(d, STOP_SIGN, 77, SLEEP_RAIL_Y - 12)
+    sprite(d, SLEEP_BUS, SLEEP_BUS_X, SLEEP_RAIL_Y - BUS_H)
+
+    # 도로 아래 가운데 정렬 문구
     if not text:
         for t, y in zip(BOOT_NOTICE, BOOT_Y):
             d.text(((W - text_w(t)) // 2, y), t, font=GALMURI, fill=1)
     else:
-        d.text(((W - text_w(text)) // 2, NOTICE_Y), text, font=GALMURI, fill=1)
+        d.text(((W - text_w(text)) // 2, SLEEP_TEXT_Y), text, font=GALMURI, fill=1)
     return img
 
 

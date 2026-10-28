@@ -82,10 +82,13 @@ static const int16_t TOP_X0 = 17, TOP_Y0 = 0, TOP_X1 = 127, TOP_Y1 = 14;  // 위
 static const int16_t TOP_TEXT_Y    = 2;
 static const int16_t BOTTOM_TEXT_Y = 52;
 static const int16_t NOTICE_Y      = 26;
+static const int16_t SLEEP_RAIL_Y  = 36;    // 잠자는 화면 도로 줄
+static const int16_t SLEEP_BUS_X   = 44;    // 잠자는 버스 왼쪽 끝 x
+static const int16_t SLEEP_TEXT_Y  = 45;    // 잠자는 화면 한 줄 글자 윗줄
 // 부팅 화면 (PC 연결 전). 언어 설정은 PC 쪽(.env LANG)에 있어서 보드는 아직 모르므로 두 언어를 함께 보여 준다.
 static const char* BOOT_LINE_KO = "연결 대기 중…";
 static const char* BOOT_LINE_EN = "Waiting for PC...";
-static const int16_t BOOT_Y_KO = 18, BOOT_Y_EN = 32;
+static const int16_t BOOT_Y_KO = 39, BOOT_Y_EN = 51;
 
 // 애니메이션 한 칸 간격. 차선이 흐르고, 출발 단계에선 캐릭터가 깡총·글자가 깜빡인다.
 static const uint32_t ANIM_MS = 200;
