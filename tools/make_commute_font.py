@@ -1,13 +1,11 @@
 #!/usr/bin/env python3
 """
-make_commute_font.py — 퇴근 알림 보드 펌웨어에 심을 글꼴 데이터를 만든다
+make_commute_font.py — 버스 출발 알림 보드 펌웨어에 심을 글꼴 데이터를 만든다
 
-아두이노 기본 글꼴(Adafruit GFX)에는 한글이 없다. 주식 티커(~/nu40-stock-ticker)처럼
-갈무리9(Galmuri9) 픽셀 글꼴을 비트맵으로 떠서 펌웨어에 넣는다.
+아두이노 기본 글꼴(Adafruit GFX)에는 한글이 없다. 그래서 갈무리9(Galmuri9) 픽셀 글꼴을
+비트맵으로 떠서 펌웨어에 넣는다.
 
-티커와 다른 점
-  - 티커는 한글 2350자를 전부 넣고 영문·숫자는 GFX 기본 글꼴을 썼다.
-  - 이 보드는 화면 시안(tools/preview/preview.py)이 숫자·기호까지 갈무리9로 그린다.
+  - 화면 시안(tools/preview/preview.py)이 숫자·기호까지 갈무리9로 그린다.
     숫자 모양이 시안과 똑같아야 하므로 **숫자·기호도 갈무리9에서 뜬다.**
   - 글자가 몇 개 안 되므로(한글 수십 자 + 숫자 + 기호) 필요한 글자만 넣는다. 약 1KB.
   - 갈무리9의 숫자·기호는 폭이 제각각이다('1'은 4픽셀, '4'는 7픽셀). 그래서 글자마다
@@ -43,20 +41,16 @@ TEXTS = [
     "지금 출발해야 해요!",
     "지금 뛰면 가능해요!",
     "놓쳤어요… 다음 거!",
-    # 맨 아래 줄
-    "18:09 열차 타기",
-    "도보10분",
-    # 열차 위 남은 시간 말풍선
+    # 맨 아래 줄 (노선·도착 시각 / 도보 시간)
+    "6616 07:42",
+    "도보4분",
+    # 버스 위 남은 시간 말풍선
     "0123456789:+",
     # 안내 화면 (데이터가 없을 때 등)
     "연결 대기 중…",
-    "시간표 받는 중…",
-    "열차 정보 없음",
-    "오늘은 운행 없음",
+    "탈 버스 없음",
     "오류… 다시 시도 중",
-    "데모 모드",
-    "실시간 모드",
-    "퇴근 시간 아님",
+    "알림 시간 아님",
     " ",
     # 영어 문구 (LANG=en). host/commute.py 의 MESSAGES["en"] / NOTICES["en"] 과 같아야 한다
     "Plenty of time",
@@ -64,11 +58,10 @@ TEXTS = [
     "Leave now!",
     "Run, you'll make it!",
     "Missed it... next one!",
-    "18:09 train",
-    "Walk 10 min",
+    "6616 07:42",
+    "Walk 4 min",
     "Waiting for PC...",
-    "Loading timetable...",
-    "No trains found",
+    "No bus to catch",
     "Error, retrying...",
     "Off hours",
 ]
@@ -110,7 +103,7 @@ def render_glyph(font, ch):
 
 
 def main():
-    ap = argparse.ArgumentParser(description="퇴근 알림 보드용 갈무리9 글꼴 헤더를 만듭니다.")
+    ap = argparse.ArgumentParser(description="버스 출발 알림 보드용 갈무리9 글꼴 헤더를 만듭니다.")
     ap.add_argument("--extra", default="", help="추가로 넣을 글자들 (문자열)")
     ap.add_argument("--out", default=str(Path(__file__).resolve().parent.parent
                                          / "firmware/nu40_commute/commute_font.h"))
@@ -133,7 +126,7 @@ def main():
     lines = []
     lines.append("// 이 파일은 tools/make_commute_font.py 가 자동으로 만든 것입니다. 직접 고치지 마세요.")
     lines.append("//")
-    lines.append("// 퇴근 알림 보드 글꼴 데이터 (갈무리9 픽셀 글꼴, 시안 preview.py 와 같은 렌더링)")
+    lines.append("// 버스 출발 알림 보드 글꼴 데이터 (갈무리9 픽셀 글꼴, 시안 preview.py 와 같은 렌더링)")
     lines.append(f"//   글자 수   : {len(glyphs)}자 (한글은 화면에 나오는 것만 + 출력 가능한 ASCII 전부)")
     lines.append(f"//   차지 용량 : 약 {total} 바이트")
     lines.append("//")

@@ -1,11 +1,10 @@
-# 퇴근 알림 보드 — 파이썬 라이브러리
+# 버스 출발 알림 보드 — 파이썬 라이브러리
 #
 # 설치 (터미널):
 #     python3 -m venv .venv && .venv/bin/pip install -r host/requirements.txt
 
-requests>=2.31          # 서울시 지하철 API 호출
+requests>=2.31          # 경기도 버스도착정보 API 호출
 pyserial>=3.5           # USB 시리얼 (보드와 대화)
-python-dotenv>=1.0      # .env 설정 파일 읽기
 Pillow>=10.0            # --render 옵션 (보드 화면을 PNG 로), tools/preview, 글꼴 생성기
 
 # 맥 내장 파이썬(LibreSSL)에서 urllib3 2.x 가 경고를 내므로 1.x 로 고정

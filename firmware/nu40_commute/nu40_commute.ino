@@ -1,13 +1,12 @@
 /*
-  NU40 DK 퇴근 알림 보드 — 보드 펌웨어
+  NU40 DK 버스 출발 알림 보드 — 보드 펌웨어
   ------------------------------------------------------------------
   이 보드가 하는 일은 딱 두 가지입니다.
     1) PC(파이썬 host/commute.py)가 USB로 보내 준 "상태·문구·남은 시간"을 OLED 에 그린다.
     2) 받은 남은 시간을 혼자서 1초씩 깎아 가며 버스를 부드럽게 움직이고, 버튼 2개를 읽는다.
 
-  이 보드(nRF52840)에는 WiFi 가 없습니다. 그래서 지하철 API 호출·시간표 계산·"지금 나가야 하나"
+  이 보드(nRF52840)에는 WiFi 가 없습니다. 그래서 버스 API 호출·탈 버스 고르기·"지금 나가야 하나"
   판단은 전부 PC 가 하고, 보드는 "받은 것을 그리기"만 합니다. 이 역할 분담은 바꾸지 마세요.
-  (구조는 ~/nu40-stock-ticker 의 nu40_ticker.ino 와 같습니다. 배선·시리얼 설정도 같습니다)
 
   화면 디자인의 기준은 tools/preview/preview.py 입니다. drawScreen() 은 그 파일의 render() 를
   좌표·순서 그대로 C 로 옮긴 것이라 픽셀 단위로 같습니다. 고칠 땐 두 파일을 같이 고치세요.
@@ -18,11 +17,11 @@
     - 상태   : relax(여유) / pack(짐 싸기) / go(출발) / missed(놓침). PC 가 정해서 보내 준다
     - 문구   : 한글/영어는 PC 의 .env LANG 이 정한다. 보드는 받은 글자를 그대로 그릴 뿐이다 (글꼴에 둘 다 있음)
 
-  시리얼 규약 (115200, 줄 단위, UTF-8)  — 자세한 것은 README 7절
+  시리얼 규약 (115200, 줄 단위, UTF-8)  — 자세한 것은 README 의 '시리얼 규약'
     PC → 보드
       S|<state>|<arrive_s>|<speed>|<leave_s>|<bottom_left>|<bottom_right>|<msg>   화면 상태 (가장 자주 옴)
       N|<text>        안내 화면 (예: 연결 대기 중…)
-      P|on / P|off    화면 켜기 / 끄기 (퇴근 시간 스케줄, 촬영용 지연 시작)
+      P|on / P|off    화면 켜기 / 끄기 (ON_AT~OFF_AT 스케줄, 촬영용 지연 시작)
       M|demo / M|live 모드 표시 (LED2 로만 표시, 화면엔 안 그림)
     보드 → PC
       READY           부팅 완료
@@ -156,8 +155,8 @@ static int32_t  arriveBase = 0;            // PC 가 알려준 "도착까지 남
 static uint32_t arriveBaseMs = 0;          // 그 값을 받은 시각(millis). 여기서부터 혼자 깎는다
 static int32_t  leaveS = LEAVE_S;          // 출발선(도착 몇 초 전). PC 가 S 줄로 보낸다 (.env 의 도보+여유)
 static int32_t  speedX = 1;                // 1 = 실제 속도, 데모 모드에선 8 같은 값(초가 8배 빨리 간다)
-static char     bottomLeft[40]  = "";      // "6616 07:42" / "18:09 열차 타기"
-static char     bottomRight[24] = "";      // "도보10분" / "Walk 10 min"
+static char     bottomLeft[40]  = "";      // "6616 07:42" (노선 · 도착 시각)
+static char     bottomRight[24] = "";      // "도보4분" / "Walk 4 min"
 static char     message[64]     = "";      // 위 말풍선 문구
 static char     notice[64]      = "";      // 안내 화면 문구
 static bool     powerOn   = true;          // 화면 켜짐 여부 (P| 명령, S1 버튼)

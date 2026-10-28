@@ -1,5 +1,0 @@
-stop_id,stop_name,stop_lat,stop_lon,parent_station
-S1,Maple Street,0.0100,0.0100,
-S2,Riverside,0.0200,0.0200,
-S3,Central Station,0.0300,0.0300,
-S4,Airport,0.0000,0.0000,

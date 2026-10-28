@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-preview.py — 퇴근 알림 보드 화면 시안 (128x64 OLED 를 PC에서 미리 보기)
+preview.py — 버스 출발 알림 보드 화면 시안 (128x64 OLED 를 PC에서 미리 보기)
 
 이 파일이 화면 디자인의 기준입니다. 펌웨어(firmware/nu40_commute/nu40_commute.ino)의
 drawScreen() 은 여기 그리는 순서·좌표·스프라이트를 그대로 옮긴 것이라, 여기 보이는 그림이
@@ -17,8 +17,8 @@ drawScreen() 은 여기 그리는 순서·좌표·스프라이트를 그대로 �
 실행:
   python3 tools/preview/preview.py                       # 시안 4장 + all.png + demo.gif (한글) 과 en_*.png / en_demo.gif (영어)
   python3 tools/preview/preview.py --lang en             # 영어 세트만
-  python3 tools/preview/preview.py --line "S|go|700|1|300|18:09 열차 타기|도보4분|지금 출발해야 해요!" --out x.png
-  python3 tools/preview/preview.py --line "S|go|700|1|300|18:09 train|Walk 4 min|Leave now!" --out x.png
+  python3 tools/preview/preview.py --line "S|go|700|1|300|6616 07:42|도보4분|지금 출발해야 해요!" --out x.png
+  python3 tools/preview/preview.py --line "S|go|700|1|300|6616 07:42|Walk 4 min|Leave now!" --out x.png
                                                          # 시리얼 한 줄이 보드에 어떻게 뜨는지
   python3 tools/preview/preview.py --check-font          # 펌웨어 글꼴 헤더가 PIL 렌더링과 같은지 검사
 """
@@ -144,7 +144,7 @@ MESSAGES_BY_LANG = {
         "go": "지금 출발해야 해요!",
         "run": "지금 뛰면 가능해요!",
         "missed": "놓쳤어요… 다음 거!",
-        "bottom_left": "{clock} 열차 타기",
+        "bottom_left": "6616 {clock}",
         "walk": "도보4분",
         "wait": "연결 대기 중…",
     },
@@ -154,7 +154,7 @@ MESSAGES_BY_LANG = {
         "go": "Leave now!",
         "run": "Run, you'll make it!",
         "missed": "Missed it... next one!",
-        "bottom_left": "{clock} bus",
+        "bottom_left": "6616 {clock}",
         "walk": "Walk 4 min",
         "wait": "Waiting for PC...",
     },
@@ -225,11 +225,11 @@ def arrive_label(arrive_in):
     return f"{m}:{s:02d}"
 
 
-def render(arrive_in, train_clock, tick=0, state=None, bottom_left=None, bottom_right=None, msg=None, lang="ko",
+def render(arrive_in, bus_clock, tick=0, state=None, bottom_left=None, bottom_right=None, msg=None, lang="ko",
            leave_s=LEAVE_S):
     """보드 화면 한 장. 펌웨어 drawScreen() 과 같은 순서로 그린다.
       arrive_in   : 버스가 정류장에 닿을 때까지 남은 초
-      train_clock : "07:42" (bottom_left 를 직접 주면 무시)
+      bus_clock   : "07:42" (bottom_left 를 직접 주면 무시)
       tick        : 애니메이션 프레임 번호 (차선 스크롤, 출발 단계 깡총·깜빡)
       lang        : 문구를 직접 주지 않았을 때 쓸 언어 ("ko" / "en")
       leave_s     : 출발선(도착 몇 초 전). 깃발 자리와 상태 계산에 쓴다
@@ -241,7 +241,7 @@ def render(arrive_in, train_clock, tick=0, state=None, bottom_left=None, bottom_
     msg = msg if msg is not None else texts[state]
     if state == "run":                     # 보드는 run 을 go 처럼 그린다 (문구만 다르다)
         state = "go"
-    bottom_left = bottom_left if bottom_left is not None else texts["bottom_left"].format(clock=train_clock)
+    bottom_left = bottom_left if bottom_left is not None else texts["bottom_left"].format(clock=bus_clock)
     bottom_right = bottom_right if bottom_right is not None else texts["walk"]
 
     # 위: 캐릭터 + 말풍선 ("go" 일 땐 캐릭터가 통통 튄다)
@@ -388,7 +388,7 @@ def check_font():
 
 
 def main():
-    ap = argparse.ArgumentParser(description="퇴근 알림 보드 화면 미리보기")
+    ap = argparse.ArgumentParser(description="버스 출발 알림 보드 화면 미리보기")
     ap.add_argument("--line", help="시리얼 규약 한 줄을 그려서 저장")
     ap.add_argument("--tick", type=int, default=0, help="--line 과 함께: 애니메이션 프레임 번호")
     ap.add_argument("--out", help="--line 결과 저장 경로 (기본 tools/preview/line.png)")
