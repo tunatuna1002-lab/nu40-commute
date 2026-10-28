@@ -20,7 +20,8 @@
   시리얼 규약 (115200, 줄 단위, UTF-8)  — 자세한 것은 README 의 '시리얼 규약'
     PC → 보드
       S|<state>|<arrive_s>|<speed>|<leave_s>|<bottom_left>|<bottom_right>|<msg>   화면 상태 (가장 자주 옴)
-      N|<text>        안내 화면 (예: 연결 대기 중…)
+      N|<text>        안내 화면 (예: 탈 버스 없음)
+      Z|<text>        잠자는 화면 (PC 가 멈출 때. 글자가 비면 한글/영어 두 줄)
       P|on / P|off    화면 켜기 / 끄기 (ON_AT~OFF_AT 스케줄, 촬영용 지연 시작)
       M|demo / M|live 모드 표시 (LED2 로만 표시, 화면엔 안 그림)
     보드 → PC
@@ -146,10 +147,14 @@ static const uint8_t FLAG_BITS[3]         = { 0b111, 0b110, 0b100 };
 // ─────────────────────────────────────────────────────────────
 // 보드가 기억하는 화면 상태
 // ─────────────────────────────────────────────────────────────
-// MODE_BOOT = 켜진 직후, PC 가 아직 아무것도 안 보냈을 때 (한글/영어 두 줄). N| 이 오면 MODE_NOTICE.
-enum ScreenMode { MODE_BOOT, MODE_NOTICE, MODE_BOARD };
+// MODE_SLEEP = PC 가 없을 때의 잠자는 화면. 켜진 직후(한글/영어 두 줄), Z| 를 받았을 때(그 글자),
+//              PC 가 PC_SILENT_MS 동안 아무것도 안 보냈을 때(두 줄). N| 이 오면 MODE_NOTICE, S| 면 MODE_BOARD.
+enum ScreenMode { MODE_SLEEP, MODE_NOTICE, MODE_BOARD };
 
-static ScreenMode mode = MODE_BOOT;
+static ScreenMode mode = MODE_SLEEP;
+static char     sleepText[64] = "";        // 잠자는 화면 글자. 비어 있으면 BOOT_LINE_KO / BOOT_LINE_EN 두 줄
+static const uint32_t PC_SILENT_MS = 30000; // PC 는 5초(데모 2초)마다 보낸다. 이만큼 조용하면 PC 가 멈춘 것으로 본다
+static uint32_t lastLineMs = 0;            // PC 가 마지막으로 줄을 보낸 시각
 static int8_t   stateIdx = 0;              // 0 relax, 1 pack, 2 go, 3 missed
 static int32_t  arriveBase = 0;            // PC 가 알려준 "도착까지 남은 초"
 static uint32_t arriveBaseMs = 0;          // 그 값을 받은 시각(millis). 여기서부터 혼자 깎는다
@@ -221,6 +226,11 @@ void loop() {
     setPower(true);
     Serial.println("PWR|on");
   }
+  if (mode != MODE_SLEEP && now - lastLineMs >= PC_SILENT_MS) {   // PC 가 멈췄거나 케이블이 빠졌다
+    mode = MODE_SLEEP;
+    sleepText[0] = '\0';
+    digitalWrite(LED_PINS[LED_GO], LOW);
+  }
   if (now - lastAnimMs >= ANIM_MS) {
     lastAnimMs = now;
     tick++;
@@ -274,6 +284,7 @@ void handleLine(char* line) {
   if (line[1] != '|') { Serial.println("ERR|Unknown command."); return; }
   char cmd = line[0];
   char* body = line + 2;
+  lastLineMs = millis();
 
   if (cmd == 'S') {
     // S|<state>|<arrive_s>|<speed>|<leave_s>|<bottom_left>|<bottom_right>|<msg>
@@ -305,6 +316,14 @@ void handleLine(char* line) {
     return;
   }
 
+  if (cmd == 'Z') {
+    copyText(sleepText, body, sizeof(sleepText));
+    mode = MODE_SLEEP;
+    digitalWrite(LED_PINS[LED_GO], LOW);
+    if (displayOk && powerOn) drawScreen();
+    return;
+  }
+
   if (cmd == 'P') {
     setPower(strcmp(body, "on") == 0);
     return;
@@ -315,7 +334,7 @@ void handleLine(char* line) {
     return;
   }
 
-  Serial.println("ERR|Unknown command. Use S|, N|, P|, M|");
+  Serial.println("ERR|Unknown command. Use S|, N|, Z|, P|, M|");
 }
 
 int8_t stateIndex(const char* s) {
@@ -493,12 +512,21 @@ int16_t xAt(int32_t seconds) {
 // ─────────────────────────────────────────────────────────────
 // 화면 그리기 — preview.py render() / render_notice() 와 같은 순서
 // ─────────────────────────────────────────────────────────────
+// 잠자는 화면 (PC 가 없을 때). sleepText 가 비면 한글/영어 두 줄, 아니면 그 글자 한 줄.
+void drawSleep() {
+  if (sleepText[0] == '\0') {
+    drawText((SCREEN_WIDTH - textWidth(BOOT_LINE_KO)) / 2, BOOT_Y_KO, BOOT_LINE_KO);
+    drawText((SCREEN_WIDTH - textWidth(BOOT_LINE_EN)) / 2, BOOT_Y_EN, BOOT_LINE_EN);
+  } else {
+    drawText((SCREEN_WIDTH - textWidth(sleepText)) / 2, NOTICE_Y, sleepText);
+  }
+}
+
 void drawScreen() {
   display.clearDisplay();
 
-  if (mode == MODE_BOOT) {                 // preview.py render_boot() 와 같다
-    drawText((SCREEN_WIDTH - textWidth(BOOT_LINE_KO)) / 2, BOOT_Y_KO, BOOT_LINE_KO);
-    drawText((SCREEN_WIDTH - textWidth(BOOT_LINE_EN)) / 2, BOOT_Y_EN, BOOT_LINE_EN);
+  if (mode == MODE_SLEEP) {                // preview.py render_sleep() 와 같다
+    drawSleep();
     display.display();
     return;
   }

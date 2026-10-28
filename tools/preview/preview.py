@@ -290,19 +290,29 @@ def render_notice(text):
     return img
 
 
-def render_boot():
-    """펌웨어가 켜진 직후(PC 가 아직 아무것도 안 보냈을 때) 보여 주는 두 줄: 한글 / 영어."""
+def render_sleep(text="", tick=0):
+    """잠자는 화면 (PC 가 없을 때). 펌웨어 drawSleep() 과 같다.
+    text 가 비면(켜진 직후, PC 가 30초 넘게 조용할 때) 한글/영어 두 줄, 아니면(Z| 줄) 그 글자 한 줄."""
     img = Image.new("1", (W, H), 0)
     d = ImageDraw.Draw(img)
-    for text, y in zip(BOOT_NOTICE, BOOT_Y):
-        d.text(((W - text_w(text)) // 2, y), text, font=GALMURI, fill=1)
+    if not text:
+        for t, y in zip(BOOT_NOTICE, BOOT_Y):
+            d.text(((W - text_w(t)) // 2, y), t, font=GALMURI, fill=1)
+    else:
+        d.text(((W - text_w(text)) // 2, NOTICE_Y), text, font=GALMURI, fill=1)
     return img
+
+
+def render_boot():
+    """펌웨어가 켜진 직후(PC 가 아직 아무것도 안 보냈을 때) 화면 = 두 줄짜리 잠자는 화면."""
+    return render_sleep("")
 
 
 def render_line(line, tick=0):
     """시리얼 규약 한 줄을 화면으로. (host/commute.py --render 와 --line 옵션이 쓴다)
       S|<state>|<arrive_s>|<speed>|<leave_s>|<bottom_left>|<bottom_right>|<msg>
       N|<text>      안내 화면
+      Z|<text>      잠자는 화면 (PC 가 멈출 때)
       P|off         화면 꺼짐 (검은 화면)
     """
     line = line.strip()
@@ -319,6 +329,8 @@ def render_line(line, tick=0):
         return render(int(arrive), "", tick=tick, state=state, bottom_left=bl, bottom_right=br, msg=msg, leave_s=leave)
     if line.startswith("N|"):
         return render_notice(line[2:])
+    if line.startswith("Z|"):
+        return render_sleep(line[2:], tick)
     if line.startswith("P|"):
         return Image.new("1", (W, H), 0)
     raise ValueError(f"그릴 수 없는 줄: {line[:20]}")
@@ -432,8 +444,12 @@ def main():
             frames.append(to_screen(render(t, "07:42", tick=i, lang=lang, bottom_left="6616 07:42"), 4))
         frames[0].save(OUT / f"{prefix}demo.gif", save_all=True, append_images=frames[1:], duration=80, loop=0)
         print(lang, "ok", len(frames))
-    # 펌웨어 부팅 화면 (두 언어 공통)
+        # 잠자는 화면 (PC 가 멈출 때 보내는 Z| 줄)
+        to_screen(render_sleep(MESSAGES_BY_LANG[lang]["wait"])).save(OUT / ("6_잠자기.png" if lang == "ko" else "en_6_sleep.png"))
+    # 펌웨어 부팅 화면 (두 언어 공통) = 두 줄짜리 잠자는 화면. 움직임은 sleep.gif
     to_screen(render_boot()).save(OUT / "0_boot.png")
+    frames = [to_screen(render_sleep("", tick=i), 4) for i in range(40)]
+    frames[0].save(OUT / "sleep.gif", save_all=True, append_images=frames[1:], duration=200, loop=0)
     return 0
 
 

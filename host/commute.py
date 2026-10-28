@@ -1035,7 +1035,7 @@ def main():
         print()
         log(tr("사용자가 멈췄습니다.", "Stopped by user."))
     finally:
-        link.send(f"N|{cfg.notice('wait')}")        # 멈춘 뒤 보드에 마지막 장면이 얼어 있지 않게
+        link.send(f"Z|{cfg.notice('wait')}")        # 멈춘 뒤 보드는 잠자는 화면 (마지막 장면이 얼어 있지 않게)
         link.close()
         log(tr("포트 닫음.", "Port closed."))
     return 0
