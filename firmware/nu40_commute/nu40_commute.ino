@@ -112,6 +112,21 @@ static const uint32_t BUS_BITS[BUS_H] = {
   0b00011001100000000000000110011000,
 };
 
+// 잠자는 버스: 창문을 감은 눈처럼 한 줄로 닫고 전조등을 끈 모양 (32x11)
+static const uint32_t SLEEP_BUS_BITS[BUS_H] = {
+  0b00001111111111111111111111110000,
+  0b00010000000000000000000000001000,
+  0b00100000000000000000000000001100,
+  0b00100111011101110111011101101010,
+  0b00100000000000000000000000001001,
+  0b00100000000000000000000000000001,
+  0b00111111111111111111111111111111,
+  0b00100000000000000000000000000001,
+  0b00111111111111111111111111111111,
+  0b00111001110000000000001110011100,
+  0b00011001100000000000000110011000,
+};
+
 static const uint8_t FACE_W = 14, FACE_H = 12;
 // 상태 번호: 0 relax, 1 pack, 2 go, 3 missed
 static const uint16_t FACE_BITS[4][FACE_H] = {
@@ -146,6 +161,12 @@ static const uint16_t STOP_SIGN_BITS[5] = {   // 11px 원형 정류장 표지, M
   0b0011111110000000,
 };
 static const uint8_t FLAG_BITS[3]         = { 0b111, 0b110, 0b100 };
+static const uint8_t Z_SMALL_BITS[4]      = { 0b1111, 0b0010, 0b0100, 0b1111 };                  // 떠오르는 작은 z (4x4)
+static const uint8_t Z_BIG_BITS[5]        = { 0b11111, 0b00010, 0b00100, 0b01000, 0b11111 };     // 떠오르는 큰 Z (5x5)
+static const uint8_t MOON_BITS[7]         = {                                                    // 초승달 (7x7)
+  0b0011110, 0b0110000, 0b1100000, 0b1100000, 0b1100000, 0b0110000, 0b0011110,
+};
+static const uint8_t STAR_BITS[3]         = { 0b010, 0b111, 0b010 };                             // 작은 별 (3x3)
 
 // ─────────────────────────────────────────────────────────────
 // 보드가 기억하는 화면 상태
@@ -517,11 +538,30 @@ int16_t xAt(int32_t seconds) {
 // ─────────────────────────────────────────────────────────────
 // 잠자는 화면 (PC 가 없을 때). sleepText 가 비면 한글/영어 두 줄, 아니면 그 글자 한 줄.
 void drawSleep() {
+  // 밤하늘: 초승달 + 별 + 버스 위에서 떠오르는 z / Z (2틱=400ms 마다 1px 위로, 20틱=4초 주기)
+  int16_t step = (tick % 20) / 2;
+  drawBits8(MOON_BITS, 7, 7, 14, 4);
+  drawBits8(STAR_BITS, 3, 3, 32, 7);
+  drawBits8(STAR_BITS, 3, 3, 104, 6);
+  drawBits8(Z_SMALL_BITS, 4, 4, 66 + step / 2, 19 - step);
+  drawBits8(Z_BIG_BITS, 5, 5, 71 + step / 2, 10 - step);
+
+  // 도로 + 멈춘 점선 차선 + 정류장 + 잠든 버스
+  display.drawFastHLine(0, SLEEP_RAIL_Y, 128, SSD1306_WHITE);
+  for (int16_t x = 1; x < 128; x += 6) {
+    display.drawPixel(x, SLEEP_RAIL_Y + 1, SSD1306_WHITE);
+    if (x + 1 < 128) display.drawPixel(x + 1, SLEEP_RAIL_Y + 1, SSD1306_WHITE);
+  }
+  drawBits8(STATION_POLE_BITS, 3, 8, 80, SLEEP_RAIL_Y - 8);
+  drawBits16(STOP_SIGN_BITS, 11, 5, 77, SLEEP_RAIL_Y - 12);
+  drawBits32(SLEEP_BUS_BITS, BUS_W, BUS_H, SLEEP_BUS_X, SLEEP_RAIL_Y - BUS_H);
+
+  // 도로 아래 가운데 정렬 문구
   if (sleepText[0] == '\0') {
     drawText((SCREEN_WIDTH - textWidth(BOOT_LINE_KO)) / 2, BOOT_Y_KO, BOOT_LINE_KO);
     drawText((SCREEN_WIDTH - textWidth(BOOT_LINE_EN)) / 2, BOOT_Y_EN, BOOT_LINE_EN);
   } else {
-    drawText((SCREEN_WIDTH - textWidth(sleepText)) / 2, NOTICE_Y, sleepText);
+    drawText((SCREEN_WIDTH - textWidth(sleepText)) / 2, SLEEP_TEXT_Y, sleepText);
   }
 }
 
