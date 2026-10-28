@@ -10,8 +10,8 @@ catch** (train time − walk time − buffer), and an **NU40 DK (nRF52840) + 0.9
 pixel train rolling toward the station with a message: *Plenty of time → Start packing → Leave now! → Missed it... next one!*
 
 ```
-train times ──▶ PC (python host/commute.py) ──USB serial──▶ NU40 DK ──I2C──▶ OLED
- (times | gtfs | seoul)   picks the train, decides the state        draws, animates, buttons
+train/bus times ──▶ PC (python host/commute.py) ──USB serial──▶ NU40 DK ──I2C──▶ OLED
+ (times | gtfs | seoul | bus)   picks the ride, decides the state     draws, animates, buttons
 ```
 
 ![English screens](tools/preview/en_all.png)
@@ -35,8 +35,13 @@ seconds down by itself, so the animation stays smooth even though the PC sends a
 | `times` (default) | nothing | Any line with a regular timetable. Type the departures or an interval. |
 | `gtfs` | your agency's GTFS static feed (a zip or folder) | Real timetables anywhere in the world, with weekday/weekend/holiday service. |
 | `seoul` | a Seoul Open Data API key | Seoul subway: official timetable + realtime delay correction (the original project). |
+| `bus` | a data.go.kr key for Gyeonggi bus arrivals | Gyeonggi-do buses: live arrivals at one stop (`BUS_STATION_ID` + `BUS_ROUTES`). |
 
-The planner, the walk-time maths, the ON/OFF window and the buttons are shared by all three.
+Find a Gyeonggi stop id (stationId) with the station-list API (same portal, keyword = stop name):
+`https://apis.data.go.kr/6410000/busstationservice/v2/getBusStationListv2?keyword=정류소이름`
+(add your service key). Then set `TRAIN_SOURCE=bus`, `BUS_STATION_ID`, `BUS_ROUTES=6616,6638`.
+
+The planner, the walk-time maths, the ON/OFF window and the buttons are shared by all four.
 
 ### 1. Hardware
 
@@ -201,8 +206,12 @@ build/nu40_commute/*.uf2        pre-built firmware for drag-and-drop flashing
 환승이 있어도 나갈 시각은 삼성역 열차만 보면 되므로 삼성역만 조회합니다.
 
 열차 시각은 `.env` 의 `TRAIN_SOURCE` 로 고릅니다 — `seoul`(서울시 API, 아래 설명) / `times`(고정 시각, 키 없이) /
-`gtfs`(해외 교통기관의 GTFS 피드). 기본값은 `times` 라서 **서울시 API 를 쓰려면 `TRAIN_SOURCE=seoul`, 한글 화면은 `LANG=ko`** 를
-`.env` 에 적어야 합니다. 탈 열차 고르기·상태·버튼은 세 공급원이 같습니다.
+`gtfs`(해외 교통기관의 GTFS 피드) / `bus`(경기도 버스도착정보). 기본값은 `times` 라서 **서울시 API 를 쓰려면 `TRAIN_SOURCE=seoul`, 한글 화면은 `LANG=ko`** 를
+`.env` 에 적어야 합니다. 탈 차 고르기·상태·버튼은 네 공급원이 같습니다.
+
+경기도 버스 정류소 ID 는
+`https://apis.data.go.kr/6410000/busstationservice/v2/getBusStationListv2?keyword=정류소이름`
+(공공데이터포털 인증키 필요) 로 찾고, `BUS_STATION_ID` · `BUS_ROUTES` · `BUS_API_KEY` 를 채웁니다.
 
 ![화면 4종](tools/preview/all.png)
 
@@ -306,7 +315,8 @@ cp host/config.example.env host/.env
 | 항목 | 기본값 | 뜻 |
 |---|---|---|
 | `LANG` | `en` | 화면 문구·로그 언어. 한글은 `ko` (OS 환경변수가 아니라 `.env` 만 봄) |
-| `TRAIN_SOURCE` | `times` | 열차 시각 공급원 `times` / `gtfs` / `seoul`. 서울시 API 는 `seoul` |
+| `TRAIN_SOURCE` | `times` | 시각 공급원 `times` / `gtfs` / `seoul` / `bus`. 서울시 API 는 `seoul`, 경기도 버스는 `bus` |
+| `BUS_API_KEY` / `BUS_STATION_ID` / `BUS_ROUTES` | — | (bus) 공공데이터포털 키 / 정류소 ID / 노선 목록 `6616,6638` |
 | `TRAIN_TIMES` | — | (times) 출발 시각 목록 `18:02,18:12,…` |
 | `TRAIN_EVERY` / `TRAIN_FIRST` / `TRAIN_LAST` | — / `05:00` / `23:59` | (times) N분 간격으로 시각 만들기 |
 | `TRAIN_DAYS` | (매일) | (times) 운행 요일 `mon-fri`, `weekdays`, `weekends`, `mon,wed,fri` |
@@ -352,7 +362,7 @@ cd ~/nu40-commute
 | `--demo` | 가짜 시계(오늘 17:53 부터 8배속)와 가짜 시간표(18:09 부터 3분 30초 간격). 여유 15초 → 짐 싸기 16초 → 출발 8초 → 놓침 5초 → 다음 열차 |
 | `--demo-speed N` | 데모 배속 바꾸기 |
 | `--lang ko\|en` | 화면 언어 (`.env` 의 `LANG` 보다 우선) |
-| `--source times\|gtfs\|seoul` | 열차 시각 공급원 (`.env` 의 `TRAIN_SOURCE` 보다 우선) |
+| `--source times\|gtfs\|seoul\|bus` | 시각 공급원 (`.env` 의 `TRAIN_SOURCE` 보다 우선) |
 | `--find-stop TEXT` | GTFS `stops.txt` 에서 이름에 TEXT 가 든 정류장의 stop_id 를 찍고 종료 |
 | `--dry-run` | 보드 없이. 시리얼로 보낼 줄을 `>> ` 로 출력 |
 | `--port` | 시리얼 포트 직접 지정 |
@@ -392,16 +402,16 @@ cd ~/nu40-commute
 │(얼굴)< 지금 출발해야 해요! │  y 0~14  캐릭터(14×12) + 말풍선(x17~127), 글자 y=2
 │                            │
 │      ┌11:40┐               │  y 23~35 열차 위 말풍선 = 도착까지 남은 시간 (16분 넘으면 16:00+)
-│      ▄▄▄▄▄▄▄▄  ▌     ▐▀▀▀▌ │  y 39~49 열차(32×11), 깃발(출발선 x=60), 역 간판·기둥(x117~127)
-│━━━━━━━━━━━━━━━━━━━━━━━━━━━━│  y 50    레일, y 51 침목(흐른다)
-│18:09 열차 타기     도보10분 │  y 52    맨 아래 줄
+│      ▄▄▄▄▄▄▄▄  ▌     ▐ ○ ▌ │  y 39~49 버스(32×11), 깃발(출발선, 도보+여유), 정류장 표지·기둥(x117~127)
+│━━━━━━━━━━━━━━━━━━━━━━━━━━━━│  y 50    도로, y 51 점선 차선(흐른다)
+│6616 07:42          도보4분 │  y 52    맨 아래 줄
 └────────────────────────────┘
 ```
 
-- 열차 앞코 x = `116 − round(남은초 / 960 × 82)`. 16분 전에 x=34 에서 출발해 도착 때 역(116)에 닿습니다.
-  깃발은 11분 자리(x=60). 열차가 깃발을 지나면 "놓침"입니다.
+- 버스 앞코 x = `116 − round(남은초 / 960 × 82)`. 16분 전에 x=34 에서 출발해 도착 때 정류장(116)에 닿습니다.
+  깃발은 출발선(도보+여유, 아침 버스 기본 5분 → x=90). 버스가 깃발을 한참 지나면 "놓침"입니다.
 - 보드는 PC 가 준 `남은 초` 를 혼자 1초씩 깎으며 그리므로 PC 가 5초에 한 번만 보내도 매끄럽게 움직입니다.
-- 200ms 마다 한 프레임: 침목이 1픽셀씩 흐르고, 출발 상태에선 캐릭터가 1픽셀 깡총(매 프레임), 글자가 4프레임 중 1프레임 꺼집니다.
+- 200ms 마다 한 프레임: 차선이 흐르고, 출발 상태에선 캐릭터가 1픽셀 깡총(매 프레임), 글자가 4프레임 중 1프레임 꺼집니다.
 
 **시안과 보드가 똑같은 이유** — 펌웨어 `drawScreen()` 은 `preview.py` 의 `render()` 를 좌표·순서 그대로 옮겼고,
 스프라이트 비트와 `x_at()` 정수식까지 같습니다. 디자인을 고칠 땐 두 파일을 같이 고치세요.
@@ -466,6 +476,7 @@ PC 는 상태·문구가 바뀌면 즉시, 아니면 5초(데모 2초)마다 다
 |---|---|---|
 | 시간표 | `openapi.seoul.go.kr:8088/{KEY}/json/SearchSTNTimeTableByIDService/1/300/0219/{요일}/2/` (요일 1 평일·2 토·3 휴일, 2 = 외선) | 하루 1번, `host/cache/` 에 저장. 실패하면 예전 캐시 → `samples/` 순으로 대신 씀 |
 | 실시간 | `swopenAPI.seoul.go.kr/api/subway/{KEY}/json/realtimeStationArrival/0/10/삼성` → `updnLine=외선`, `trainLineNm` 에 `종합운동장방면` | 60초 (켜진 시간대에만) |
+| 경기도 버스 | `apis.data.go.kr/6410000/busarrivalservice/v2/getBusArrivalListv2` (`stationId` + 노선 필터) | 60초 (켜진 시간대에만). 정류소 ID: `.../busstationservice/v2/getBusStationListv2?keyword=정류소이름` |
 
 - `barvlDt`(초)가 0 이면 `arvlMsg2`("1분 30초 후", "[2]번째 전역") 를 해석하고, `recptnDt` 로부터 지난 시간만큼 뺍니다.
 - 지연 추정 = 보이는 열차마다 (실시간 도착 − 시간표 도착) 의 중앙값. 열차번호(`btrainNo` = `TRAIN_NO`)로 대조하고,

@@ -3,7 +3,7 @@
   ------------------------------------------------------------------
   이 보드가 하는 일은 딱 두 가지입니다.
     1) PC(파이썬 host/commute.py)가 USB로 보내 준 "상태·문구·남은 시간"을 OLED 에 그린다.
-    2) 받은 남은 시간을 혼자서 1초씩 깎아 가며 열차를 부드럽게 움직이고, 버튼 2개를 읽는다.
+    2) 받은 남은 시간을 혼자서 1초씩 깎아 가며 버스를 부드럽게 움직이고, 버튼 2개를 읽는다.
 
   이 보드(nRF52840)에는 WiFi 가 없습니다. 그래서 지하철 API 호출·시간표 계산·"지금 나가야 하나"
   판단은 전부 PC 가 하고, 보드는 "받은 것을 그리기"만 합니다. 이 역할 분담은 바꾸지 마세요.
@@ -72,11 +72,11 @@ Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 // ─────────────────────────────────────────────────────────────
 // 화면 배치 상수 (tools/preview/preview.py 와 반드시 같아야 함)
 // ─────────────────────────────────────────────────────────────
-static const int32_t LEAVE_S   = 11 * 60;   // 출발선: 도착 11분 전 (도보 10분 + 여유 1분)
-static const int32_t WINDOW_S  = 16 * 60;   // 레일 왼쪽 끝 = 도착 16분 전
-static const int16_t RAIL_Y    = 50;        // 레일 줄
-static const int16_t STATION_X = 116;       // 열차 앞코가 닿는 자리
-static const int16_t FAR_X     = 34;        // 도착 16분 전 열차 앞코 자리
+static const int32_t LEAVE_S   = 5 * 60;    // 출발선: 도착 5분 전 (도보 4분 + 여유 1분)
+static const int32_t WINDOW_S  = 16 * 60;   // 도로 왼쪽 끝 = 도착 16분 전
+static const int16_t RAIL_Y    = 50;        // 도로 줄
+static const int16_t STATION_X = 116;       // 버스 앞코가 닿는 자리
+static const int16_t FAR_X     = 34;        // 도착 16분 전 버스 앞코 자리
 static const int16_t FACE_Y    = 2;         // 캐릭터 윗줄
 static const int16_t TOP_X0 = 17, TOP_Y0 = 0, TOP_X1 = 127, TOP_Y1 = 14;  // 위 말풍선
 static const int16_t TOP_TEXT_Y    = 2;
@@ -87,26 +87,26 @@ static const char* BOOT_LINE_KO = "연결 대기 중…";
 static const char* BOOT_LINE_EN = "Waiting for PC...";
 static const int16_t BOOT_Y_KO = 18, BOOT_Y_EN = 32;
 
-// 애니메이션 한 칸 간격. 침목이 1픽셀 흐르고, 출발 단계에선 캐릭터가 깡총·글자가 깜빡인다.
+// 애니메이션 한 칸 간격. 차선이 흐르고, 출발 단계에선 캐릭터가 깡총·글자가 깜빡인다.
 static const uint32_t ANIM_MS = 200;
 
 // ─────────────────────────────────────────────────────────────
-// 픽셀 그림 (preview.py 의 TRAIN / FACES / STATION_POLE / FLAG 를 비트로 옮긴 것)
+// 픽셀 그림 (preview.py 의 BUS / FACES / STATION_POLE / STOP_SIGN / FLAG 를 비트로 옮긴 것)
 // 한 줄이 uint32_t 하나, 최상위 비트(bit 31)가 맨 왼쪽 픽셀.
 // ─────────────────────────────────────────────────────────────
-static const uint8_t TRAIN_W = 32, TRAIN_H = 11;
-static const uint32_t TRAIN_BITS[TRAIN_H] = {
-  0b00111111111111111111111111110000,
-  0b01000000000000000000000000001000,
-  0b10011101110111001001110111001100,
-  0b10011101110111001001110111001010,
-  0b10011101110111001001110111001001,
-  0b10000000000000001000000000001001,
-  0b11111111111111111111111111111111,
-  0b10000000000000000000000000000000,
-  0b11111111111111111111111111111111,
-  0b00110011000000000000001100110000,
-  0b00110011000000000000001100110000,
+static const uint8_t BUS_W = 32, BUS_H = 11;
+static const uint32_t BUS_BITS[BUS_H] = {
+  0b00001111111111111111111111110000,
+  0b00010000000000000000000000001000,
+  0b00100111011101110111011101101100,
+  0b00100111011101110111011101101010,
+  0b00100000000000000000000000001001,
+  0b00100000000000000000000000001111,
+  0b00111111111111111111111111111111,
+  0b00100000000000000000000000000001,
+  0b00111111111111111111111111111111,
+  0b00111001110000000000001110011100,
+  0b00011001100000000000000110011000,
 };
 
 static const uint8_t FACE_W = 14, FACE_H = 12;
@@ -135,6 +135,13 @@ static const uint16_t FACE_BITS[4][FACE_H] = {
 };
 
 static const uint8_t STATION_POLE_BITS[8] = { 0b111, 0b101, 0b101, 0b101, 0b101, 0b101, 0b101, 0b101 };
+static const uint16_t STOP_SIGN_BITS[5] = {   // 11px 원형 정류장 표지, MSB = 왼쪽
+  0b0011111110000000,
+  0b0110000011000000,
+  0b1000111000100000,
+  0b0110000011000000,
+  0b0011111110000000,
+};
 static const uint8_t FLAG_BITS[3]         = { 0b111, 0b110, 0b100 };
 
 // ─────────────────────────────────────────────────────────────
@@ -148,7 +155,7 @@ static int8_t   stateIdx = 0;              // 0 relax, 1 pack, 2 go, 3 missed
 static int32_t  arriveBase = 0;            // PC 가 알려준 "도착까지 남은 초"
 static uint32_t arriveBaseMs = 0;          // 그 값을 받은 시각(millis). 여기서부터 혼자 깎는다
 static int32_t  speedX = 1;                // 1 = 실제 속도, 데모 모드에선 8 같은 값(초가 8배 빨리 간다)
-static char     bottomLeft[40]  = "";      // "18:09 열차 타기" / "18:09 train"
+static char     bottomLeft[40]  = "";      // "6616 07:42" / "18:09 열차 타기"
 static char     bottomRight[24] = "";      // "도보10분" / "Walk 10 min"
 static char     message[64]     = "";      // 위 말풍선 문구
 static char     notice[64]      = "";      // 안내 화면 문구
@@ -451,7 +458,7 @@ void drawBits8(const uint8_t* rows, uint8_t w, uint8_t h, int16_t x, int16_t y) 
       if (rows[j] & (1 << (w - 1 - i))) display.drawPixel(x + i, y + j, SSD1306_WHITE);
 }
 
-// 말풍선 테두리. tailLeft=true 면 왼쪽(캐릭터) 쪽으로, 아니면 아래(tailX 자리, 열차) 쪽으로 꼬리.
+// 말풍선 테두리. tailLeft=true 면 왼쪽(캐릭터) 쪽으로, 아니면 아래(tailX 자리, 버스) 쪽으로 꼬리.
 void drawBubble(int16_t x0, int16_t y0, int16_t x1, int16_t y1, bool tailLeft, int16_t tailX) {
   display.drawFastHLine(x0 + 1, y0, x1 - x0 - 1, SSD1306_WHITE);
   display.drawFastHLine(x0 + 1, y1, x1 - x0 - 1, SSD1306_WHITE);
@@ -472,7 +479,7 @@ void drawBubble(int16_t x0, int16_t y0, int16_t x1, int16_t y1, bool tailLeft, i
   }
 }
 
-// 남은 초 → 레일 위 x. preview.py 의 x_at() 과 같은 정수식(0.5 는 올림).
+// 남은 초 → 도로 위 x. preview.py 의 x_at() 과 같은 정수식(0.5 는 올림).
 int16_t xAt(int32_t seconds) {
   int32_t t = seconds;
   if (t < 0) t = 0;
@@ -509,21 +516,22 @@ void drawScreen() {
     drawText(TOP_X0 + (TOP_X1 - TOP_X0 + 1 - textWidth(message)) / 2, TOP_TEXT_Y, message);
   }
 
-  // 2) 레일 + 침목(흐른다) + 역
+  // 2) 도로 + 점선 차선(흐른다) + 정류장
   display.drawFastHLine(0, RAIL_Y, 128, SSD1306_WHITE);
-  for (int16_t x = 1 - (int16_t)(tick % 4); x < 128; x += 4) {
+  for (int16_t x = 1 - (int16_t)(tick % 6); x < 128; x += 6) {
     if (x >= 0) display.drawPixel(x, RAIL_Y + 1, SSD1306_WHITE);
+    if (x + 1 >= 0 && x + 1 < 128) display.drawPixel(x + 1, RAIL_Y + 1, SSD1306_WHITE);
   }
-  drawBits8(STATION_POLE_BITS, 3, 8, 120, RAIL_Y - 8);                 // 역 기둥
-  display.fillRect(117, RAIL_Y - 12, 11, 5, SSD1306_WHITE);            // 역 간판 (117~127, y-12~y-8)
+  drawBits8(STATION_POLE_BITS, 3, 8, 120, RAIL_Y - 8);                 // 정류장 기둥
+  drawBits16(STOP_SIGN_BITS, 11, 5, 117, RAIL_Y - 12);                 // 원형 정류장 표지
   // 출발선 깃발
   int16_t fx = xAt(LEAVE_S);
   display.drawFastVLine(fx, RAIL_Y - 7, 7, SSD1306_WHITE);             // y-7 ~ y-1
   drawBits8(FLAG_BITS, 3, 3, fx + 1, RAIL_Y - 7);
 
-  // 3) 열차 + 남은 시간 말풍선
-  int16_t tx = xAt(arriveIn) - TRAIN_W;
-  drawBits32(TRAIN_BITS, TRAIN_W, TRAIN_H, tx, RAIL_Y - TRAIN_H);
+  // 3) 버스 + 남은 시간 말풍선
+  int16_t tx = xAt(arriveIn) - BUS_W;
+  drawBits32(BUS_BITS, BUS_W, BUS_H, tx, RAIL_Y - BUS_H);
   char label[12];
   if (arriveIn >= WINDOW_S) {
     strcpy(label, "16:00+");
@@ -535,14 +543,14 @@ void drawScreen() {
   int16_t cx = tx + 14 - lw / 2;
   if (cx > 127 - lw) cx = 127 - lw;
   if (cx < 0) cx = 0;
-  int16_t by = RAIL_Y - TRAIN_H - 16;
+  int16_t by = RAIL_Y - BUS_H - 16;
   int16_t tailX = tx + 14;
   if (tailX < cx + 2) tailX = cx + 2;
   if (tailX > cx + lw - 3) tailX = cx + lw - 3;
   drawBubble(cx, by, cx + lw, by + 12, false, tailX);
   drawText(cx + 3, by + 1, label);
 
-  // 4) 맨 밑: 탈 열차 · 도보
+  // 4) 맨 밑: 노선·시각 · 도보
   drawText(0, BOTTOM_TEXT_Y, bottomLeft);
   drawText(127 - textWidth(bottomRight), BOTTOM_TEXT_Y, bottomRight);
 

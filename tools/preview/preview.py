@@ -9,10 +9,10 @@ drawScreen() 은 여기 그리는 순서·좌표·스프라이트를 그대로 �
 
 화면 짜임
   위   : 캐릭터 + 말풍선 ("지금 출발해야 해요!")
-  가운데: 열차 위 작은 말풍선 = 삼성역 도착까지 남은 시간
-  아래 : 레일. 열차가 남은 시간에 맞춰 오른쪽 역으로 다가온다.
-         레일 위 깃발 = 출발선(도보 10분 + 여유 1분). 열차가 깃발을 지나면 나가야 한다.
-  맨 밑 : 탈 열차 시각 · 도보 시간
+  가운데: 버스 위 작은 말풍선 = 정류장 도착까지 남은 시간
+  아래 : 도로. 버스가 남은 시간에 맞춰 오른쪽 정류장으로 다가온다.
+         도로 위 깃발 = 출발선(도보 4분 + 여유 1분). 버스가 깃발을 지나면 나가야 한다.
+  맨 밑 : 노선·도착 시각 · 도보 시간
 
 실행:
   python3 tools/preview/preview.py                       # 시안 4장 + all.png + demo.gif (한글) 과 en_*.png / en_demo.gif (영어)
@@ -37,13 +37,13 @@ GALMURI = ImageFont.truetype(str(FONT_PATH), 12)
 SMALL = GALMURI
 
 # ── 펌웨어와 똑같은 상수 ──────────────────────────────────
-WALK_S = 10 * 60
+WALK_S = 4 * 60
 BUFFER_S = 60
-LEAVE_S = WALK_S + BUFFER_S          # 출발선: 도착 11분 전
-WINDOW_S = 16 * 60                   # 레일 왼쪽 끝 = 도착 16분 전
+LEAVE_S = WALK_S + BUFFER_S          # 출발선: 도착 5분 전 (도보 4 + 여유 1)
+WINDOW_S = 16 * 60                   # 도로 왼쪽 끝 = 도착 16분 전
 RAIL_Y = 50
-STATION_X = 116                      # 열차 앞코가 닿는 자리
-FAR_X = 34                           # 도착 16분 전 열차 앞코 자리 (몸통이 화면 안에 다 보이게)
+STATION_X = 116                      # 버스 앞코가 닿는 자리
+FAR_X = 34                           # 도착 16분 전 버스 앞코 자리 (몸통이 화면 안에 다 보이게)
 FACE_Y = 2                           # 캐릭터 윗줄
 TOP_BUBBLE = (17, 0, 127, 14)        # 위 말풍선 (x0, y0, x1, y1)
 TOP_TEXT_Y = 2
@@ -51,21 +51,21 @@ BOTTOM_TEXT_Y = 52
 NOTICE_Y = 26                        # 안내 화면 글자 윗줄
 
 # ── 픽셀 그림 (# = 켜진 픽셀) ─────────────────────────────
-TRAIN = """
-..##########################....
-.#..........................#...
-#..###.###.###..#..###.###..##..
-#..###.###.###..#..###.###..#.#.
-#..###.###.###..#..###.###..#..#
-#...............#...........#..#
-################################
-#...............................
-################################
-..##..##..............##..##....
-..##..##..............##..##....
+BUS = """
+....########################....
+...#........................#...
+..#..###.###.###.###.###.##.##..
+..#..###.###.###.###.###.##.#.#.
+..#.........................#..#
+..#.........................####
+..##############################
+..#............................#
+..##############################
+..###..###............###..###..
+...##..##..............##..##...
 """.strip().splitlines()
-TRAIN_W = len(TRAIN[0])              # 32
-TRAIN_H = len(TRAIN)                 # 11
+BUS_W = len(BUS[0])                  # 32
+BUS_H = len(BUS)                     # 11
 
 FACES = {
     "relax": """
@@ -126,6 +126,13 @@ FACES = {
 """,
 }
 STATION_POLE = ["###", "#.#", "#.#", "#.#", "#.#", "#.#", "#.#", "#.#"]
+STOP_SIGN = [
+    "..#######..",
+    ".##.....##.",
+    "#...###...#",
+    ".##.....##.",
+    "..#######..",
+]
 FLAG = ["###", "##.", "#.."]
 
 # 화면 문구 (host/commute.py 의 MESSAGES 와 같다). LANG=ko / en
@@ -136,7 +143,7 @@ MESSAGES_BY_LANG = {
         "go": "지금 출발해야 해요!",
         "missed": "놓쳤어요… 다음 거!",
         "bottom_left": "{clock} 열차 타기",
-        "walk": "도보10분",
+        "walk": "도보4분",
         "wait": "연결 대기 중…",
     },
     "en": {
@@ -144,8 +151,8 @@ MESSAGES_BY_LANG = {
         "pack": "Start packing",
         "go": "Leave now!",
         "missed": "Missed it... next one!",
-        "bottom_left": "{clock} train",
-        "walk": "Walk 10 min",
+        "bottom_left": "{clock} bus",
+        "walk": "Walk 4 min",
         "wait": "Waiting for PC...",
     },
 }
@@ -175,7 +182,7 @@ def bubble(d, x0, y0, x1, y1, tail):
         d.point((x0, mid), 0)
         d.point((x0 - 1, mid), 1); d.point((x0 - 2, mid + 1), 1)
         d.point((x0 - 1, mid + 1), 1)
-    else:                                      # ("down", cx) 열차 쪽으로 꼬리
+    else:                                      # ("down", cx) 버스 쪽으로 꼬리
         cx = tail[1]
         d.point((cx, y1), 0); d.point((cx + 1, y1), 0)
         d.point((cx, y1 + 1), 1); d.point((cx + 1, y1 + 1), 1); d.point((cx, y1 + 2), 1)
@@ -193,16 +200,16 @@ def state_for(leave_in):
 
 
 def x_at(seconds):
-    """남은 초 → 레일 위 x. 정수 연산(반올림은 0.5 올림)으로 해서 펌웨어의 C 코드와 결과가 같다.
+    """남은 초 → 도로 위 x. 정수 연산(반올림은 0.5 올림)으로 해서 펌웨어의 C 코드와 결과가 같다.
     (파이썬 round() 는 .5 를 짝수로 보내서 C 와 달라질 수 있어 쓰지 않는다)"""
     t = max(0, min(WINDOW_S, int(seconds)))
     span = STATION_X - FAR_X
     return STATION_X - (t * span * 2 + WINDOW_S) // (2 * WINDOW_S)
 
 
-def train_x(arrive_in):
-    """남은 시간 → 열차 앞코 x. 남은 시간이 줄수록 오른쪽 역으로 다가온다."""
-    return x_at(arrive_in) - TRAIN_W
+def bus_x(arrive_in):
+    """남은 시간 → 버스 앞코 x. 남은 시간이 줄수록 오른쪽 정류장으로 다가온다."""
+    return x_at(arrive_in) - BUS_W
 
 
 def arrive_label(arrive_in):
@@ -214,9 +221,9 @@ def arrive_label(arrive_in):
 
 def render(arrive_in, train_clock, tick=0, state=None, bottom_left=None, bottom_right=None, msg=None, lang="ko"):
     """보드 화면 한 장. 펌웨어 drawScreen() 과 같은 순서로 그린다.
-      arrive_in   : 열차가 삼성역에 닿을 때까지 남은 초
-      train_clock : "18:09" (bottom_left 를 직접 주면 무시)
-      tick        : 애니메이션 프레임 번호 (침목 스크롤, 출발 단계 깡총·깜빡)
+      arrive_in   : 버스가 정류장에 닿을 때까지 남은 초
+      train_clock : "07:42" (bottom_left 를 직접 주면 무시)
+      tick        : 애니메이션 프레임 번호 (차선 스크롤, 출발 단계 깡총·깜빡)
       lang        : 문구를 직접 주지 않았을 때 쓸 언어 ("ko" / "en")
     """
     texts = MESSAGES_BY_LANG[lang]
@@ -236,28 +243,31 @@ def render(arrive_in, train_clock, tick=0, state=None, bottom_left=None, bottom_
     if not (state == "go" and tick % 4 == 3):  # 출발 단계에선 글자가 깜빡
         d.text((x0 + (x1 - x0 + 1 - text_w(msg)) // 2, TOP_TEXT_Y), msg, font=GALMURI, fill=1)
 
-    # 레일 + 침목 + 역
+    # 도로 + 점선 차선 + 정류장
     d.line((0, RAIL_Y, 127, RAIL_Y), fill=1)
-    for x in range(1 - (tick % 4), 128, 4):
-        d.point((x, RAIL_Y + 1), 1)
-    sprite(d, STATION_POLE, 120, RAIL_Y - 8)                   # 역 기둥
-    d.rectangle((117, RAIL_Y - 12, 127, RAIL_Y - 8), fill=1)   # 역 간판
+    for x in range(1 - (tick % 6), 128, 6):
+        if 0 <= x < 128:
+            d.point((x, RAIL_Y + 1), 1)
+        if 0 <= x + 1 < 128:
+            d.point((x + 1, RAIL_Y + 1), 1)
+    sprite(d, STATION_POLE, 120, RAIL_Y - 8)                   # 정류장 기둥
+    sprite(d, STOP_SIGN, 117, RAIL_Y - 12)                     # 원형 정류장 표지
     # 출발선 깃발
     fx = x_at(LEAVE_S)
     d.line((fx, RAIL_Y - 7, fx, RAIL_Y - 1), fill=1)
     sprite(d, FLAG, fx + 1, RAIL_Y - 7)
 
-    # 열차 + 남은 시간 말풍선
-    tx = train_x(arrive_in)
-    sprite(d, TRAIN, tx, RAIL_Y - TRAIN_H)
+    # 버스 + 남은 시간 말풍선
+    tx = bus_x(arrive_in)
+    sprite(d, BUS, tx, RAIL_Y - BUS_H)
     label = arrive_label(arrive_in)
     lw = text_w(label, SMALL) + 6
     cx = max(0, min(127 - lw, tx + 14 - lw // 2))
-    by = RAIL_Y - TRAIN_H - 16
+    by = RAIL_Y - BUS_H - 16
     bubble(d, cx, by, cx + lw, by + 12, ("down", min(max(tx + 14, cx + 2), cx + lw - 3)))
     d.text((cx + 3, by + 1), label, font=SMALL, fill=1)
 
-    # 맨 밑: 탈 열차 · 도보
+    # 맨 밑: 노선·시각 · 도보
     d.text((0, BOTTOM_TEXT_Y), bottom_left, font=GALMURI, fill=1)
     d.text((127 - text_w(bottom_right), BOTTOM_TEXT_Y), bottom_right, font=GALMURI, fill=1)
     return img
@@ -385,14 +395,14 @@ def main():
         return 0
 
     # 상태별 시안. 한글은 기존 파일 이름 그대로, 영어는 en_ 접두어로 따로 저장한다.
-    shots = [(15 * 60 + 20, "1_여유", "en_1_plenty"), (13 * 60 + 30, "2_짐싸기", "en_2_pack"),
-             (11 * 60 + 40, "3_출발", "en_3_leave"), (10 * 60 + 50, "4_놓침", "en_4_missed")]
+    shots = [(9 * 60 + 20, "1_여유", "en_1_plenty"), (7 * 60 + 30, "2_짐싸기", "en_2_pack"),
+             (5 * 60 + 40, "3_출발", "en_3_leave"), (4 * 60 + 50, "4_놓침", "en_4_missed")]
     langs = ("ko", "en") if args.lang == "all" else (args.lang,)
     for lang in langs:
         prefix = "" if lang == "ko" else "en_"
         tiles = []
         for t, name_ko, name_en in shots:
-            tile = to_screen(render(t, "18:09", lang=lang))
+            tile = to_screen(render(t, "07:42", lang=lang, bottom_left="6616 07:42"))
             tile.save(OUT / f"{name_ko if lang == 'ko' else name_en}.png")
             tiles.append(tile)
         # 4장 모아보기 (2x2)
@@ -404,10 +414,10 @@ def main():
         sheet.save(OUT / f"{prefix}all.png")
         # 안내 화면 예시 (PC 가 보낸 N| 줄)
         to_screen(render_notice(MESSAGES_BY_LANG[lang]["wait"])).save(OUT / ("5_안내.png" if lang == "ko" else "en_5_waiting.png"))
-        # 데모: 도착 16분 전 → 10분 전을 8초로 압축 (촬영용 데모 모드와 같은 흐름)
+        # 데모: 도착 10분 전 → 4분 전 (출발선 5분을 지나도록)
         frames = []
-        for i, t in enumerate(range(16 * 60, 10 * 60 - 1, -6)):
-            frames.append(to_screen(render(t, "18:09", tick=i, lang=lang), 4))
+        for i, t in enumerate(range(10 * 60, 4 * 60 - 1, -6)):
+            frames.append(to_screen(render(t, "07:42", tick=i, lang=lang, bottom_left="6616 07:42"), 4))
         frames[0].save(OUT / f"{prefix}demo.gif", save_all=True, append_images=frames[1:], duration=80, loop=0)
         print(lang, "ok", len(frames))
     # 펌웨어 부팅 화면 (두 언어 공통)

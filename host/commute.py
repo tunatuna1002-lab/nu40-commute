@@ -52,6 +52,7 @@ import sys
 import threading
 import time
 import zipfile
+from urllib.parse import unquote
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
@@ -78,7 +79,8 @@ SAMPLE_TIMETABLE = ROOT / "samples/timetable_samsung_weekday_outer.json"
 CACHE_DIR = HERE / "cache"
 FONT_HEADER = ROOT / "firmware/nu40_commute/commute_font.h"
 
-SOURCES = ("times", "gtfs", "seoul")
+SOURCES = ("times", "gtfs", "seoul", "bus")
+BUS_ARRIVAL_URL = "https://apis.data.go.kr/6410000/busarrivalservice/v2/getBusArrivalListv2"   # 경기도 버스도착정보 v2
 LANGS = ("en", "ko")
 
 # 화면 문구. 펌웨어 글꼴(commute_font.h)에 이 글자들이 다 들어 있어야 한다.
@@ -181,7 +183,7 @@ class Config:
                 loaded.append(str(p))
             merged.update(vals)
         for k, v in os.environ.items():                # 환경변수가 최우선 (LANG 은 OS 로캘과 겹치므로 .env 만 본다)
-            if k in ("SEOUL_SUBWAY_KEY", "SERIAL_PORT", "TRAIN_SOURCE"):
+            if k in ("SEOUL_SUBWAY_KEY", "SERIAL_PORT", "TRAIN_SOURCE", "BUS_API_KEY", "BUS_STATION_ID", "BUS_ROUTES"):
                 merged[k] = v
         self.loaded_files = loaded
 
@@ -220,6 +222,10 @@ class Config:
         self.gtfs_route_id = merged.get("GTFS_ROUTE_ID", "").strip()
         self.gtfs_direction_id = merged.get("GTFS_DIRECTION_ID", "").strip()
         self.gtfs_headsign = merged.get("GTFS_HEADSIGN", "").strip()
+        # bus (경기도 버스도착정보, 공공데이터포털 키)
+        self.bus_key = merged.get("BUS_API_KEY", "").strip()
+        self.bus_station_id = merged.get("BUS_STATION_ID", "").strip()
+        self.bus_routes = [r.strip() for r in re.split(r"[,\s]+", merged.get("BUS_ROUTES", "")) if r.strip()]
         # 공통
         self.walk_min = self._int(merged.get("WALK_MINUTES"), 10, "WALK_MINUTES")
         self.buffer_min = self._int(merged.get("BUFFER_MINUTES"), 1, "BUFFER_MINUTES")
@@ -247,23 +253,30 @@ class Config:
     def walk_label(self):
         return f"도보{self.walk_min}분" if self.lang == "ko" else f"Walk {self.walk_min} min"
 
-    def bottom_left(self, clock):
+    def bottom_left(self, clock, label=None):
+        if label:                                    # 버스: '6616 07:42' (글꼴에 있는 글자만 써서 숫자·콜론으로)
+            return f"{label} {clock}"
         return f"{clock} 열차 타기" if self.lang == "ko" else f"{clock} train"
 
     def msg(self, state):
         return MESSAGES[self.lang][state]
 
     def notice(self, key):
+        if self.source == "bus" and key == "no_train" and self.lang == "en":
+            return "No bus to catch"          # 나갈 시간 안에 탈 수 있는 버스가 없을 때
         return NOTICES[self.lang][key]
 
     def screen_texts(self):
         """보드에 보낼 수 있는 모든 문구 (글꼴 검사용)."""
-        return list(MESSAGES[self.lang].values()) + list(NOTICES[self.lang].values()) + \
-            [self.walk_label, self.bottom_left("18:09")]
+        return list(MESSAGES[self.lang].values()) + list(NOTICES[self.lang].values()) + ["No bus to catch"] + \
+            [self.walk_label, self.bottom_left("18:09"), self.bottom_left("18:09", "6616")]
 
     def mask(self, text):
         """로그에 키가 섞여 나가지 않게 가린다."""
-        return text.replace(self.key, "****") if self.key else text
+        for secret in (self.key, self.bus_key):
+            if secret:
+                text = text.replace(secret, "****")
+        return text
 
 
 # ─────────────────────────────────────────────────────────────
@@ -272,9 +285,10 @@ class Config:
 class Train:
     """시간표의 열차 하나. arrive = 역 도착(예정) 시각."""
 
-    def __init__(self, train_no, arrive):
+    def __init__(self, train_no, arrive, label=None):
         self.no = train_no
         self.arrive = arrive
+        self.label = label         # 버스 노선 번호 등. 있으면 화면 아래 줄에 시각 앞에 붙는다
 
     def __repr__(self):
         return f"{self.arrive.strftime('%H:%M:%S')}({self.no})"
@@ -900,7 +914,8 @@ class Planner:
 
         return "frame", Frame(
             state, arrive_in, self.speed,
-            self.cfg.bottom_left(hhmm(self.current.arrive)), self.cfg.walk_label, self.cfg.msg(state),
+            self.cfg.bottom_left(hhmm(self.current.arrive), getattr(self.current, "label", None)),
+            self.cfg.walk_label, self.cfg.msg(state),
         )
 
     def describe(self, frame):
@@ -1084,6 +1099,100 @@ def in_window(cfg, now):
 
 
 # ─────────────────────────────────────────────────────────────
+# 공급원 4: 경기도 버스도착정보 (TRAIN_SOURCE=bus) — 정류소 하나에서 고른 노선들의 실시간 도착
+# ─────────────────────────────────────────────────────────────
+class BusSource:
+    """공공데이터포털 '경기도_버스도착정보 조회' v2.
+
+    시간표가 따로 없다. 일정 간격(poll_s)으로 정류소 도착정보를 불러, 노선별 첫째·둘째 버스의
+    '몇 초 후 도착'을 절대 시각(Train.arrive)으로 바꿔 둔다. 다음 호출 전까지는 그 시각이 고정이라
+    보드의 카운트다운이 매끄럽다. 버스는 차량 ID 로 구분해서, 호출이 바뀌어도 같은 버스를 따라간다.
+    """
+
+    def __init__(self, cfg, requests_mod):
+        self.cfg = cfg
+        self.requests = requests_mod
+        self.last_poll = 0.0
+        self.trains = None             # 마지막으로 성공한 결과. 처음 실패하면 None → '오류' 화면
+        self.fetched_at = None
+
+    def ok(self):
+        return bool(self.cfg.bus_key and self.cfg.bus_station_id and self.cfg.bus_routes)
+
+    def describe(self):
+        return f"{self.cfg.bus_station_id} / {','.join(self.cfg.bus_routes)}"
+
+    def trains_for(self, day):
+        now = datetime.now()
+        if day != now.date():          # 버스는 '지금' 정보만 있다 (어제·내일 시간표 없음)
+            return []
+        if time.time() - self.last_poll >= self.cfg.poll_s:
+            self.last_poll = time.time()
+            self._poll(now)
+        # 호출이 계속 실패하면 오래된 값을 믿지 않는다 (5분 넘으면 오류 화면)
+        if self.trains is not None and self.fetched_at is not None \
+                and (now - self.fetched_at).total_seconds() > 300:
+            return None
+        return self.trains
+
+    def _poll(self, now):
+        key = unquote(self.cfg.bus_key)      # 인코딩된 키(%2B 등)를 붙여 넣어도, 아닌 키도 똑같이 동작
+        params = {"serviceKey": key, "format": "json", "stationId": self.cfg.bus_station_id}
+        try:
+            resp = self.requests.get(BUS_ARRIVAL_URL, params=params, timeout=HTTP_TIMEOUT)
+        except Exception as e:               # 예외 메시지에 URL(키)이 들어갈 수 있어 형만 찍는다
+            log(tr(f"버스 도착정보 호출 실패: {type(e).__name__}", f"Bus arrival request failed: {type(e).__name__}"))
+            return
+        if resp.status_code != 200:
+            log(tr(f"버스 도착정보 호출 실패: HTTP {resp.status_code}", f"Bus arrival request failed: HTTP {resp.status_code}"))
+            return
+        try:
+            body = resp.json()
+        except ValueError:
+            # 인증 오류 등은 XML 로 온다. 내용은 찍지 않고 안내만
+            log(tr("버스 응답이 JSON 이 아닙니다. 키가 승인됐는지(활용신청), 호출 한도를 넘지 않았는지 확인하세요.",
+                   "Bus response is not JSON — check that the key is approved and the daily limit is not exceeded."))
+            return
+        head = (body.get("response") or {}).get("msgHeader") or {}
+        if str(head.get("resultCode")) not in ("0", "4"):       # 0 정상, 4 결과 없음
+            log(tr(f"버스 응답 오류: {head.get('resultCode')} {head.get('resultMessage')}",
+                   f"Bus API error: {head.get('resultCode')} {head.get('resultMessage')}"))
+            return
+        rows = ((body.get("response") or {}).get("msgBody") or {}).get("busArrivalList") or []
+        if isinstance(rows, dict):
+            rows = [rows]
+
+        wanted = {str(r) for r in self.cfg.bus_routes}
+        trains = []
+        for row in rows:
+            route = str(row.get("routeName", "")).strip()
+            if route not in wanted:
+                continue
+            for n in ("1", "2"):
+                eta = self._seconds(row, n)
+                if eta is None:
+                    continue
+                veh = str(row.get("vehId" + n) or "").strip()
+                no = f"{route}-{veh}" if veh else f"{route}#{n}"
+                trains.append(Train(no, now + timedelta(seconds=eta), label=route))
+        trains.sort(key=lambda t: t.arrive)
+        self.trains, self.fetched_at = trains, now
+        log(tr(f"버스 도착정보: {', '.join(f'{t.label} {mmss((t.arrive - now).total_seconds())}' for t in trains) or '도착 예정 없음'}",
+               f"Bus arrivals: {', '.join(f'{t.label} {mmss((t.arrive - now).total_seconds())}' for t in trains) or 'none'}"))
+
+    @staticmethod
+    def _seconds(row, n):
+        """predictTimeSec(초) 가 있으면 그것, 없으면 predictTime(분) 을 초로. 둘 다 없으면 None."""
+        sec = row.get("predictTimeSec" + n)
+        if isinstance(sec, (int, float)):
+            return int(sec)
+        mins = row.get("predictTime" + n)
+        if isinstance(mins, (int, float)):
+            return int(mins) * 60
+        return None
+
+
+# ─────────────────────────────────────────────────────────────
 # 공급원 고르기
 # ─────────────────────────────────────────────────────────────
 def build_source(cfg, requests_mod):
@@ -1104,6 +1213,17 @@ def build_source(cfg, requests_mod):
             (f" dir {cfg.gtfs_direction_id}" if cfg.gtfs_direction_id else "") + \
             (f" '{cfg.gtfs_headsign}'" if cfg.gtfs_headsign else "")
         return src.trains_for, None, f"GTFS {cfg.gtfs_path} — stop {where}"
+
+    if cfg.source == "bus":
+        if requests_mod is None:
+            return None, None, tr("requests 가 없습니다. pip3 install -r host/requirements.txt",
+                                  "requests is not installed. pip3 install -r host/requirements.txt")
+        src = BusSource(cfg, requests_mod)
+        if not src.ok():
+            return None, None, tr("버스 설정이 모자랍니다 (BUS_API_KEY, BUS_STATION_ID, BUS_ROUTES). host/.env 를 보세요.",
+                                  "Bus is not configured (BUS_API_KEY, BUS_STATION_ID, BUS_ROUTES). See host/.env.")
+        return src.trains_for, None, tr(f"경기도 버스도착정보 — 정류소 {src.describe()}",
+                                        f"Gyeonggi bus arrivals — stop {src.describe()}")
 
     # seoul
     if requests_mod is None:
