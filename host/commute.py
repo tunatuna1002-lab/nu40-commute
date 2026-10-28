@@ -77,6 +77,8 @@ BUS_DEADBAND_S = 30           # 버스: 한 번 호출에서 이보다 작게 �
 BUS_LATER_S = 30              # 버스: 한 번 호출에 늦어지는 쪽으로는 이만큼까지만 따라간다 (호출 간격보다 작게.
                               #  분 단위 예측이 같은 값으로 머물면 호출마다 1분씩 밀리는 걸 막는다)
 BUS_EARLIER_S = 120           # 버스: 빨라지는 쪽은 더 빨리 따라간다 (늦게 알려 주는 것보다 일찍 알려 주는 게 낫다)
+BUS_MAX_LAG_S = 60            # 버스: 다듬은 도착은 이번 예측에서 이 이상 벗어나지 않는다 (분 단위 예측의 오차 한도).
+                              #  초 단위 예측(predictTimeSec)이면 BUS_DEADBAND_S 까지만. 늦어진 버스를 놓침으로 잘못 보이지 않게
 SAME_BUS_S = 90               # 버스 이름(차량 ID·번호판·순번)이 바뀌어도 같은 노선에서 도착이 이만큼 안쪽이면 같은 버스로 본다
 
 REALTIME_URL = "http://swopenAPI.seoul.go.kr/api/subway/{key}/json/realtimeStationArrival/0/10/{station}"
@@ -821,18 +823,20 @@ def demo_trains(day):
 class Frame:
     """보드에 보낼 한 장. S 줄 하나에 대응."""
 
-    def __init__(self, state, arrive_in, speed, bottom_left, bottom_right, msg):
+    def __init__(self, state, arrive_in, speed, bottom_left, bottom_right, msg, leave_s=0):
         self.state, self.arrive_in, self.speed = state, int(arrive_in), speed
+        self.leave_s = int(leave_s)            # 출발선(도착 몇 초 전에 나가야 하나). 보드가 깃발을 여기 그린다
         self.bottom_left, self.bottom_right, self.msg = bottom_left, bottom_right, msg
 
     def line(self):
         # 보드는 run 을 따로 모른다. go 처럼(캐릭터 통통·LED1) 보여 주고 문구만 다르다
         wire_state = "go" if self.state == "run" else self.state
-        return f"S|{wire_state}|{self.arrive_in}|{self.speed}|{self.bottom_left}|{self.bottom_right}|{self.msg}"
+        return f"S|{wire_state}|{self.arrive_in}|{self.speed}|{self.leave_s}|{self.bottom_left}|{self.bottom_right}|{self.msg}"
 
     def same_as(self, other):
         """카운트다운(arrive_in)은 보드가 알아서 깎으니, 그 밖의 것이 같으면 '같은 장면'으로 본다."""
         return (other is not None and self.state == other.state and self.speed == other.speed
+                and self.leave_s == other.leave_s
                 and self.bottom_left == other.bottom_left and self.bottom_right == other.bottom_right
                 and self.msg == other.msg)
 
@@ -956,7 +960,7 @@ class Planner:
         return "frame", Frame(
             state, arrive_in, self.speed,
             self.cfg.bottom_left(hhmm(self.current.arrive), getattr(self.current, "label", None)),
-            self.cfg.walk_label, self.cfg.msg(state),
+            self.cfg.walk_label, self.cfg.msg(state), self.cfg.leave_s,
         )
 
     def describe(self, frame):
@@ -1222,7 +1226,7 @@ class BusSource:
                 continue
             seen_route = True
             for n in ("1", "2"):
-                eta = self._seconds(row, n)
+                eta, precise = self._seconds(row, n)
                 if eta is None:
                     continue
                 # 차량 ID(없으면 차량 번호)로 같은 버스를 따라간다. 둘 다 없으면 순번(#1, #2)으로
@@ -1237,6 +1241,10 @@ class BusSource:
                         arrive = old.arrive
                     else:
                         arrive = old.arrive + timedelta(seconds=max(-BUS_EARLIER_S, min(BUS_LATER_S, delta)))
+                    # 다듬어도 이번 예측의 오차 한도 밖으로는 벗어나지 않는다 (진짜 지연·당겨짐은 바로 따라간다)
+                    raw = now + timedelta(seconds=eta)
+                    lag = timedelta(seconds=BUS_DEADBAND_S if precise else BUS_MAX_LAG_S)
+                    arrive = min(max(arrive, raw - lag), raw + lag)
                 trains.append(Train(no, arrive, label=route))
         trains.sort(key=lambda t: t.arrive)
         if not seen_route and self.trains and not self.kept_empty:
@@ -1254,7 +1262,7 @@ class BusSource:
 
     @staticmethod
     def _seconds(row, n):
-        """predictTimeSec(초) 가 있으면 그것, 없으면 predictTime(분) 을 초로. 둘 다 없으면 None."""
+        """(초, 초 단위였나). predictTimeSec(초) 가 있으면 그것, 없으면 predictTime(분) 을 초로. 둘 다 없으면 (None, False)."""
         def num(v):                    # 숫자로 오든 문자열("5")로 오든 받는다. 빈 값(""), 0, 음수(빈 자리 표시)는 없음
             try:
                 v = int(float(v))
@@ -1263,9 +1271,9 @@ class BusSource:
             return v if v > 0 else None
         sec = num(row.get("predictTimeSec" + n))
         if sec is not None:
-            return sec
+            return sec, True
         mins = num(row.get("predictTime" + n))
-        return mins * 60 if mins is not None else None
+        return (mins * 60 if mins is not None else None), False
 
 
 # ─────────────────────────────────────────────────────────────

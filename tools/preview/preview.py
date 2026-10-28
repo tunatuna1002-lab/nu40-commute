@@ -17,8 +17,8 @@ drawScreen() 은 여기 그리는 순서·좌표·스프라이트를 그대로 �
 실행:
   python3 tools/preview/preview.py                       # 시안 4장 + all.png + demo.gif (한글) 과 en_*.png / en_demo.gif (영어)
   python3 tools/preview/preview.py --lang en             # 영어 세트만
-  python3 tools/preview/preview.py --line "S|go|700|1|18:09 열차 타기|도보10분|지금 출발해야 해요!" --out x.png
-  python3 tools/preview/preview.py --line "S|go|700|1|18:09 train|Walk 10 min|Leave now!" --out x.png
+  python3 tools/preview/preview.py --line "S|go|700|1|300|18:09 열차 타기|도보4분|지금 출발해야 해요!" --out x.png
+  python3 tools/preview/preview.py --line "S|go|700|1|300|18:09 train|Walk 4 min|Leave now!" --out x.png
                                                          # 시리얼 한 줄이 보드에 어떻게 뜨는지
   python3 tools/preview/preview.py --check-font          # 펌웨어 글꼴 헤더가 PIL 렌더링과 같은지 검사
 """
@@ -224,17 +224,19 @@ def arrive_label(arrive_in):
     return f"{m}:{s:02d}"
 
 
-def render(arrive_in, train_clock, tick=0, state=None, bottom_left=None, bottom_right=None, msg=None, lang="ko"):
+def render(arrive_in, train_clock, tick=0, state=None, bottom_left=None, bottom_right=None, msg=None, lang="ko",
+           leave_s=LEAVE_S):
     """보드 화면 한 장. 펌웨어 drawScreen() 과 같은 순서로 그린다.
       arrive_in   : 버스가 정류장에 닿을 때까지 남은 초
       train_clock : "07:42" (bottom_left 를 직접 주면 무시)
       tick        : 애니메이션 프레임 번호 (차선 스크롤, 출발 단계 깡총·깜빡)
       lang        : 문구를 직접 주지 않았을 때 쓸 언어 ("ko" / "en")
+      leave_s     : 출발선(도착 몇 초 전). 깃발 자리와 상태 계산에 쓴다
     """
     texts = MESSAGES_BY_LANG[lang]
     img = Image.new("1", (W, H), 0)
     d = ImageDraw.Draw(img)
-    leave_in = arrive_in - LEAVE_S
+    leave_in = arrive_in - leave_s
     state = state or state_for(leave_in)
     msg = msg if msg is not None else texts[state]
     if state == "run":                     # 보드는 run 을 go 처럼 그린다 (문구만 다르다)
@@ -260,7 +262,7 @@ def render(arrive_in, train_clock, tick=0, state=None, bottom_left=None, bottom_
     sprite(d, STATION_POLE, 120, RAIL_Y - 8)                   # 정류장 기둥
     sprite(d, STOP_SIGN, 117, RAIL_Y - 12)                     # 원형 정류장 표지
     # 출발선 깃발
-    fx = x_at(LEAVE_S)
+    fx = x_at(leave_s)
     d.line((fx, RAIL_Y - 7, fx, RAIL_Y - 1), fill=1)
     sprite(d, FLAG, fx + 1, RAIL_Y - 7)
 
@@ -299,19 +301,22 @@ def render_boot():
 
 def render_line(line, tick=0):
     """시리얼 규약 한 줄을 화면으로. (host/commute.py --render 와 --line 옵션이 쓴다)
-      S|<state>|<arrive_s>|<speed>|<bottom_left>|<bottom_right>|<msg>
+      S|<state>|<arrive_s>|<speed>|<leave_s>|<bottom_left>|<bottom_right>|<msg>
       N|<text>      안내 화면
       P|off         화면 꺼짐 (검은 화면)
     """
     line = line.strip()
     if line.startswith("S|"):
-        parts = line.split("|")
-        if len(parts) < 7:
-            raise ValueError("S 줄은 7칸이어야 합니다: S|state|arrive|speed|bottom_left|bottom_right|msg")
-        _, state, arrive, _speed, bl, br, msg = parts[:7]
+        parts = line.split("|", 7)            # 마지막 칸(문구)은 자르지 않는다 (펌웨어 splitFields 와 같게)
+        if len(parts) < 8:
+            raise ValueError("S 줄은 8칸이어야 합니다: S|state|arrive|speed|leave|bottom_left|bottom_right|msg")
+        _, state, arrive, _speed, leave, bl, br, msg = parts
+        leave = int(leave) if leave.lstrip("-").isdigit() else 0
+        if leave <= 0 or leave > WINDOW_S:    # 펌웨어와 같은 기본값 처리
+            leave = LEAVE_S
         if state not in FACES:
             raise ValueError(f"모르는 상태: {state}")
-        return render(int(arrive), "", tick=tick, state=state, bottom_left=bl, bottom_right=br, msg=msg)
+        return render(int(arrive), "", tick=tick, state=state, bottom_left=bl, bottom_right=br, msg=msg, leave_s=leave)
     if line.startswith("N|"):
         return render_notice(line[2:])
     if line.startswith("P|"):

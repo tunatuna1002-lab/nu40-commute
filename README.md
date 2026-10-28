@@ -171,7 +171,7 @@ character, so any English text works without re-flashing — just keep the speec
 characters in this font) and the bottom line labels short enough to fit side by side. To check a line before sending it:
 
 ```bash
-.venv/bin/python tools/preview/preview.py --line "S|go|700|1|18:09 train|Walk 10 min|Leave now!" --out x.png
+.venv/bin/python tools/preview/preview.py --line "S|go|700|1|300|18:09 train|Walk 4 min|Leave now!" --out x.png
 .venv/bin/python tools/preview/preview.py --lang en        # regenerate tools/preview/en_*.png and en_demo.gif
 ```
 
@@ -435,7 +435,7 @@ cd ~/nu40-commute
 .venv/bin/python tools/preview/preview.py                    # 시안 4장 + all.png + demo.gif (한글), en_*.png + en_demo.gif (영어), 0_boot.png
 .venv/bin/python tools/preview/preview.py --lang en          # 영어 세트만
 .venv/bin/python tools/preview/preview.py --check-font       # 펌웨어 글꼴이 시안 렌더링과 같은지 검사
-.venv/bin/python tools/preview/preview.py --line "S|go|700|1|18:09 열차 타기|도보10분|지금 출발해야 해요!" --out x.png
+.venv/bin/python tools/preview/preview.py --line "S|go|700|1|300|18:09 열차 타기|도보4분|지금 출발해야 해요!" --out x.png
 ```
 
 ### 글꼴
@@ -465,12 +465,12 @@ PC 가 상태와 문구를 정하고, 보드는 그리기만 합니다.
 
 | 줄 | 뜻 |
 |---|---|
-| `S\|<state>\|<arrive_s>\|<speed>\|<bottom_left>\|<bottom_right>\|<msg>` | 화면 상태. `state` = `relax`/`pack`/`go`/`missed`, `arrive_s` = 열차 도착까지 남은 초(음수 가능), `speed` = 보드가 초를 깎는 배속(실시간 1, 데모 8), `bottom_left` = `18:09 열차 타기`, `bottom_right` = `도보10분`, `msg` = 말풍선 문구 |
+| `S\|<state>\|<arrive_s>\|<speed>\|<leave_s>\|<bottom_left>\|<bottom_right>\|<msg>` | 화면 상태. `state` = `relax`/`pack`/`go`/`missed`, `arrive_s` = 도착까지 남은 초(음수 가능), `speed` = 보드가 초를 깎는 배속(실시간 1, 데모 8), `leave_s` = 출발선(도착 몇 초 전에 나가야 하나, `.env` 의 도보+여유). 보드는 깃발을 여기 그린다, `bottom_left` = `18:09 열차 타기`, `bottom_right` = `도보10분`, `msg` = 말풍선 문구 |
 | `N\|<text>` | 안내 화면 (글자 한 줄 가운데). `연결 대기 중…`, `시간표 받는 중…`, `열차 정보 없음`, `오류… 다시 시도 중`, `퇴근 시간 아님` (영어: `Waiting for PC...`, `Loading timetable...`, `No trains found`, `Error, retrying...`, `Off hours`) |
 | `P\|on` / `P\|off` | 화면 켜기/끄기 (OLED 자체를 재움. 카운트다운은 계속) |
 | `M\|demo` / `M\|live` | 모드 표시 (LED2) |
 
-예: `S|go|700|1|18:09 열차 타기|도보10분|지금 출발해야 해요!`
+예: `S|go|700|1|300|18:09 열차 타기|도보4분|지금 출발해야 해요!`
 PC 는 상태·문구가 바뀌면 즉시, 아니면 5초(데모 2초)마다 다시 보냅니다(보드 카운트다운 재동기).
 
 ### 보드 → PC

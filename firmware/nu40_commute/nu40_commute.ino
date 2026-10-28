@@ -20,7 +20,7 @@
 
   시리얼 규약 (115200, 줄 단위, UTF-8)  — 자세한 것은 README 7절
     PC → 보드
-      S|<state>|<arrive_s>|<speed>|<bottom_left>|<bottom_right>|<msg>   화면 상태 (가장 자주 옴)
+      S|<state>|<arrive_s>|<speed>|<leave_s>|<bottom_left>|<bottom_right>|<msg>   화면 상태 (가장 자주 옴)
       N|<text>        안내 화면 (예: 연결 대기 중…)
       P|on / P|off    화면 켜기 / 끄기 (퇴근 시간 스케줄, 촬영용 지연 시작)
       M|demo / M|live 모드 표시 (LED2 로만 표시, 화면엔 안 그림)
@@ -72,7 +72,7 @@ Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 // ─────────────────────────────────────────────────────────────
 // 화면 배치 상수 (tools/preview/preview.py 와 반드시 같아야 함)
 // ─────────────────────────────────────────────────────────────
-static const int32_t LEAVE_S   = 5 * 60;    // 출발선: 도착 5분 전 (도보 4분 + 여유 1분)
+static const int32_t LEAVE_S   = 5 * 60;    // 출발선 기본값 (S 줄의 leave_s 가 오면 그 값을 쓴다)
 static const int32_t WINDOW_S  = 16 * 60;   // 도로 왼쪽 끝 = 도착 16분 전
 static const int16_t RAIL_Y    = 50;        // 도로 줄
 static const int16_t STATION_X = 116;       // 버스 앞코가 닿는 자리
@@ -154,6 +154,7 @@ static ScreenMode mode = MODE_BOOT;
 static int8_t   stateIdx = 0;              // 0 relax, 1 pack, 2 go, 3 missed
 static int32_t  arriveBase = 0;            // PC 가 알려준 "도착까지 남은 초"
 static uint32_t arriveBaseMs = 0;          // 그 값을 받은 시각(millis). 여기서부터 혼자 깎는다
+static int32_t  leaveS = LEAVE_S;          // 출발선(도착 몇 초 전). PC 가 S 줄로 보낸다 (.env 의 도보+여유)
 static int32_t  speedX = 1;                // 1 = 실제 속도, 데모 모드에선 8 같은 값(초가 8배 빨리 간다)
 static char     bottomLeft[40]  = "";      // "6616 07:42" / "18:09 열차 타기"
 static char     bottomRight[24] = "";      // "도보10분" / "Walk 10 min"
@@ -276,9 +277,9 @@ void handleLine(char* line) {
   char* body = line + 2;
 
   if (cmd == 'S') {
-    // S|<state>|<arrive_s>|<speed>|<bottom_left>|<bottom_right>|<msg>
-    char* f[6];
-    if (splitFields(body, f, 6) < 6) { Serial.println("ERR|S needs 6 fields."); return; }
+    // S|<state>|<arrive_s>|<speed>|<leave_s>|<bottom_left>|<bottom_right>|<msg>
+    char* f[7];
+    if (splitFields(body, f, 7) < 7) { Serial.println("ERR|S needs 7 fields."); return; }
     int8_t idx = stateIndex(f[0]);
     if (idx < 0) { Serial.println("ERR|Unknown state."); return; }
     stateIdx     = idx;
@@ -286,9 +287,11 @@ void handleLine(char* line) {
     arriveBaseMs = millis();
     speedX       = atol(f[2]);
     if (speedX < 1) speedX = 1;
-    copyText(bottomLeft,  f[3], sizeof(bottomLeft));
-    copyText(bottomRight, f[4], sizeof(bottomRight));
-    copyText(message,     f[5], sizeof(message));
+    leaveS       = atol(f[3]);
+    if (leaveS <= 0 || leaveS > WINDOW_S) leaveS = LEAVE_S;
+    copyText(bottomLeft,  f[4], sizeof(bottomLeft));
+    copyText(bottomRight, f[5], sizeof(bottomRight));
+    copyText(message,     f[6], sizeof(message));
     mode = MODE_BOARD;
     digitalWrite(LED_PINS[LED_GO], stateIdx == 2 ? HIGH : LOW);
     if (displayOk && powerOn) drawScreen();   // 기다리지 않고 바로 반영
@@ -525,7 +528,7 @@ void drawScreen() {
   drawBits8(STATION_POLE_BITS, 3, 8, 120, RAIL_Y - 8);                 // 정류장 기둥
   drawBits16(STOP_SIGN_BITS, 11, 5, 117, RAIL_Y - 12);                 // 원형 정류장 표지
   // 출발선 깃발
-  int16_t fx = xAt(LEAVE_S);
+  int16_t fx = xAt(leaveS);
   display.drawFastVLine(fx, RAIL_Y - 7, 7, SSD1306_WHITE);             // y-7 ~ y-1
   drawBits8(FLAG_BITS, 3, 3, fx + 1, RAIL_Y - 7);
 
