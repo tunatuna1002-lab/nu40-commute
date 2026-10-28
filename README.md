@@ -22,6 +22,10 @@ Screens are English (`LANG=en`) or Korean (`LANG=ko`).*
 
 ![데모](tools/preview/en_demo.gif)
 
+PC 프로그램이 멈추거나 30초 넘게 아무것도 보내지 않으면 보드는 잠자는 버스 화면으로 바뀝니다.
+
+![잠자는 화면](tools/preview/sleep.gif)
+
 ## 화면 상태
 
 `leave_in` = 나갈 때까지 남은 시간 = 도착까지 − (도보 + 여유). 기본값 도보 4분, 여유 1분.
@@ -96,7 +100,7 @@ python3 -m venv .venv
 - **arduino-cli:** `arduino-cli upload -p /dev/cu.usbmodem1101 --fqbn nucode:nrf52:nu40dk firmware/nu40_commute` (먼저 `compile`)
 - **IDE 없이:** RESET 을 두 번 눌러 `NRF52BOOT` 드라이브가 뜨면 `build/nu40_commute/nu40_commute.uf2` 를 복사
 
-화면에 `연결 대기 중… / Waiting for PC...` 가 뜨면 성공입니다.
+잠자는 버스 아래에 `연결 대기 중… / Waiting for PC...` 가 뜨면 성공입니다.
 
 ## 4. 설정
 
@@ -148,7 +152,8 @@ https://apis.data.go.kr/6410000/busstationservice/v2/getBusStationListv2?service
 | `--duration SEC` | SEC 초 뒤 종료 (테스트용) |
 | `--verbose` | 보내는 줄 전부 출력 |
 
-`Ctrl+C` 로 멈춥니다. 멈추면 보드에 `Waiting for PC...` 를 보내 마지막 장면이 화면에 남지 않게 합니다.
+`Ctrl+C` 로 멈춥니다. 멈추면 보드에 잠자는 화면(`Z|Waiting for PC...`)을 보내 마지막 장면이 남지 않게 합니다.
+PC 가 갑자기 꺼지거나 케이블이 빠져도 보드는 30초 뒤 스스로 잠자는 화면으로 바뀝니다.
 
 **켜짐/꺼짐 규칙**
 1. `ON_AT ~ OFF_AT` 안에서만 켭니다. 밖에서는 `Off hours` 를 보낸 뒤 화면을 끕니다.
@@ -201,7 +206,8 @@ https://apis.data.go.kr/6410000/busstationservice/v2/getBusStationListv2?service
 | 줄 | 뜻 |
 |---|---|
 | `S\|<state>\|<arrive_s>\|<speed>\|<leave_s>\|<bottom_left>\|<bottom_right>\|<msg>` | 화면 상태. `state` = `relax`/`pack`/`go`/`missed` (run 은 `go` 로 보냄), `arrive_s` = 도착까지 남은 초, `speed` = 보드가 초를 깎는 배속, `leave_s` = 출발선(초), `bottom_left` = `6616 07:42`, `bottom_right` = `Walk 4 min`, `msg` = 말풍선 문구 |
-| `N\|<text>` | 안내 화면. `Waiting for PC...`, `No bus to catch`, `Error, retrying...`, `Off hours` (한글: `연결 대기 중…`, `탈 버스 없음`, `오류… 다시 시도 중`, `알림 시간 아님`) |
+| `N\|<text>` | 안내 화면. `No bus to catch`, `Error, retrying...`, `Off hours` (한글: `탈 버스 없음`, `오류… 다시 시도 중`, `알림 시간 아님`) |
+| `Z\|<text>` | 잠자는 화면 (달, 별, 떠오르는 z, 정류장에서 잠든 버스) + 글자 한 줄. PC 가 멈출 때 보냄. 보드는 PC 가 30초 넘게 조용해도, 켜진 직후에도 이 화면(글자는 한글/영어 두 줄)을 보여 줌 |
 | `P\|on` / `P\|off` | 화면 켜기/끄기 |
 | `M\|demo` / `M\|live` | 모드 표시 (LED2) |
 
@@ -223,7 +229,7 @@ PC 는 상태·문구가 바뀌면 바로, 아니면 5초(데모 2초)마다 다
 | 증상 | 확인 |
 |---|---|
 | 화면이 안 켜짐 | SDA/SCL 바꿔 꽂기, VCC 가 3V3 인지, 점퍼선 교체. 시리얼 모니터에 `ERR\|No OLED` 가 반복되면 배선 문제 |
-| `Waiting for PC...` 에서 안 바뀜 | PC 프로그램이 안 돌거나 포트가 다름. 아두이노 시리얼 모니터를 닫았는지 확인 |
+| 잠자는 화면(`Waiting for PC...`)에서 안 바뀜 | PC 프로그램이 안 돌거나 포트가 다름. 아두이노 시리얼 모니터를 닫았는지 확인 |
 | 화면이 꺼져 있음 | `ON_AT~OFF_AT` 밖이면 정상. S1 을 누르거나 `--always-on` |
 | `No bus to catch` | 걸어서 닿을 수 있는 버스가 없음 (도보 시간보다 가까이 왔거나, 늦은 밤이라 운행이 없음) |
 | `Bus response is not JSON` | 키가 아직 승인 전이거나 하루 한도 초과 |
@@ -240,7 +246,7 @@ host/config.example.env                   설정 템플릿 (복사해서 host/.e
 host/requirements.txt                     파이썬 라이브러리
 tools/make_commute_font.py                글꼴 헤더 생성기
 tools/preview/preview.py                  화면 시안 = 디자인 기준
-tools/preview/*.png, *.gif                시안 이미지 (en_* 는 영어, 나머지는 한글, 0_boot.png 는 부팅 화면)
+tools/preview/*.png, *.gif                시안 이미지 (en_* 는 영어, 나머지는 한글, 0_boot.png·sleep.gif 는 잠자는 화면)
 build/nu40_commute/nu40_commute.uf2       컴파일된 펌웨어 (드래그로 굽기)
 ```
 
