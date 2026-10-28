@@ -40,6 +40,7 @@ SMALL = GALMURI
 WALK_S = 4 * 60
 BUFFER_S = 60
 LEAVE_S = WALK_S + BUFFER_S          # 출발선: 도착 5분 전 (도보 4 + 여유 1)
+RUN_S = 120                          # 출발선을 넘겨도 이만큼은 "뛰면 가능" (host/commute.py 의 RUN_S)
 WINDOW_S = 16 * 60                   # 도로 왼쪽 끝 = 도착 16분 전
 RAIL_Y = 50
 STATION_X = 116                      # 버스 앞코가 닿는 자리
@@ -141,6 +142,7 @@ MESSAGES_BY_LANG = {
         "relax": "아직 여유 있어요",
         "pack": "슬슬 짐 싸야 해요",
         "go": "지금 출발해야 해요!",
+        "run": "지금 뛰면 가능해요!",
         "missed": "놓쳤어요… 다음 거!",
         "bottom_left": "{clock} 열차 타기",
         "walk": "도보4분",
@@ -150,6 +152,7 @@ MESSAGES_BY_LANG = {
         "relax": "Plenty of time",
         "pack": "Start packing",
         "go": "Leave now!",
+        "run": "Run, you'll make it!",
         "missed": "Missed it... next one!",
         "bottom_left": "{clock} bus",
         "walk": "Walk 4 min",
@@ -190,8 +193,10 @@ def bubble(d, x0, y0, x1, y1, tail):
 
 def state_for(leave_in):
     """나갈 때까지 남은 초 → 상태. host/commute.py 와 같은 기준."""
-    if leave_in < 0:
+    if leave_in < -RUN_S:
         return "missed"
+    if leave_in < 0:
+        return "run"
     if leave_in <= 60:
         return "go"
     if leave_in <= 180:
@@ -232,6 +237,8 @@ def render(arrive_in, train_clock, tick=0, state=None, bottom_left=None, bottom_
     leave_in = arrive_in - LEAVE_S
     state = state or state_for(leave_in)
     msg = msg if msg is not None else texts[state]
+    if state == "run":                     # 보드는 run 을 go 처럼 그린다 (문구만 다르다)
+        state = "go"
     bottom_left = bottom_left if bottom_left is not None else texts["bottom_left"].format(clock=train_clock)
     bottom_right = bottom_right if bottom_right is not None else texts["walk"]
 
@@ -396,7 +403,7 @@ def main():
 
     # 상태별 시안. 한글은 기존 파일 이름 그대로, 영어는 en_ 접두어로 따로 저장한다.
     shots = [(9 * 60 + 20, "1_여유", "en_1_plenty"), (7 * 60 + 30, "2_짐싸기", "en_2_pack"),
-             (5 * 60 + 40, "3_출발", "en_3_leave"), (4 * 60 + 50, "4_놓침", "en_4_missed")]
+             (5 * 60 + 40, "3_출발", "en_3_leave"), (2 * 60 + 50, "4_놓침", "en_4_missed")]
     langs = ("ko", "en") if args.lang == "all" else (args.lang,)
     for lang in langs:
         prefix = "" if lang == "ko" else "en_"
@@ -414,9 +421,9 @@ def main():
         sheet.save(OUT / f"{prefix}all.png")
         # 안내 화면 예시 (PC 가 보낸 N| 줄)
         to_screen(render_notice(MESSAGES_BY_LANG[lang]["wait"])).save(OUT / ("5_안내.png" if lang == "ko" else "en_5_waiting.png"))
-        # 데모: 도착 10분 전 → 4분 전 (출발선 5분을 지나도록)
+        # 데모: 도착 10분 전 → 2분 30초 전 (출발선 5분을 지나 '뛰면 가능', '놓침'까지)
         frames = []
-        for i, t in enumerate(range(10 * 60, 4 * 60 - 1, -6)):
+        for i, t in enumerate(range(10 * 60, 2 * 60 + 30 - 1, -6)):
             frames.append(to_screen(render(t, "07:42", tick=i, lang=lang, bottom_left="6616 07:42"), 4))
         frames[0].save(OUT / f"{prefix}demo.gif", save_all=True, append_images=frames[1:], duration=80, loop=0)
         print(lang, "ok", len(frames))

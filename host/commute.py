@@ -821,7 +821,7 @@ class Frame:
                 and self.msg == other.msg)
 
 
-RUN_S = 120                   # 출발선을 넘겨도 이만큼은 "뛰면 가능" (걸어서 10분 → 뛰어서 8분쯤)
+RUN_S = 120                   # 출발선을 넘겨도 이만큼은 "뛰면 가능" (여유분을 다 쓰고 1~2분 서두르면 되는 구간)
 
 
 def state_for(leave_in):
@@ -1155,8 +1155,8 @@ class BusSource:
             return
         head = (body.get("response") or {}).get("msgHeader") or {}
         if str(head.get("resultCode")) not in ("0", "4"):       # 0 정상, 4 결과 없음
-            log(tr(f"버스 응답 오류: {head.get('resultCode')} {head.get('resultMessage')}",
-                   f"Bus API error: {head.get('resultCode')} {head.get('resultMessage')}"))
+            detail = self.cfg.mask(f"{head.get('resultCode')} {head.get('resultMessage')}").replace(key, "****")
+            log(tr(f"버스 응답 오류: {detail}", f"Bus API error: {detail}"))
             return
         rows = ((body.get("response") or {}).get("msgBody") or {}).get("busArrivalList") or []
         if isinstance(rows, dict):
@@ -1172,7 +1172,8 @@ class BusSource:
                 eta = self._seconds(row, n)
                 if eta is None:
                     continue
-                veh = str(row.get("vehId" + n) or "").strip()
+                # 차량 ID(없으면 차량 번호)로 같은 버스를 따라간다. 둘 다 없으면 순번(#1, #2)으로
+                veh = str(row.get("vehId" + n) or row.get("plateNo" + n) or "").strip()
                 no = f"{route}-{veh}" if veh else f"{route}#{n}"
                 trains.append(Train(no, now + timedelta(seconds=eta), label=route))
         trains.sort(key=lambda t: t.arrive)
@@ -1183,13 +1184,16 @@ class BusSource:
     @staticmethod
     def _seconds(row, n):
         """predictTimeSec(초) 가 있으면 그것, 없으면 predictTime(분) 을 초로. 둘 다 없으면 None."""
-        sec = row.get("predictTimeSec" + n)
-        if isinstance(sec, (int, float)):
-            return int(sec)
-        mins = row.get("predictTime" + n)
-        if isinstance(mins, (int, float)):
-            return int(mins) * 60
-        return None
+        def num(v):                    # 숫자로 오든 문자열("5")로 오든 받는다. 빈 값("")은 없음
+            try:
+                return int(float(v))
+            except (TypeError, ValueError):
+                return None
+        sec = num(row.get("predictTimeSec" + n))
+        if sec is not None:
+            return sec
+        mins = num(row.get("predictTime" + n))
+        return mins * 60 if mins is not None else None
 
 
 # ─────────────────────────────────────────────────────────────
