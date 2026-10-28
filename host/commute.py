@@ -72,6 +72,12 @@ HTTP_TIMEOUT = 10
 MIN_POLL_S = 30               # 실시간 호출 최소 간격 (하루 한도 ~1,000건)
 DELAY_MATCH_S = 180           # 열차번호가 안 맞을 때, 이 안쪽의 시간표 열차와 짝지어 지연을 잰다
 DELAY_CLAMP = (-120, 600)     # 지연 추정 허용 범위(초). 밖이면 믿지 않는다
+STATE_HYST_S = 60             # 덜 급한 상태로 돌아갈 때는 이만큼 더 여유가 생겨야 돌아간다 (예측이 튀어도 왔다 갔다 안 하게)
+BUS_DEADBAND_S = 30           # 버스: 한 번 호출에서 이보다 작게 바뀐 도착 예정은 무시 (분 단위 예측의 잔떨림, 아래 줄 시각 깜빡임)
+BUS_LATER_S = 30              # 버스: 한 번 호출에 늦어지는 쪽으로는 이만큼까지만 따라간다 (호출 간격보다 작게.
+                              #  분 단위 예측이 같은 값으로 머물면 호출마다 1분씩 밀리는 걸 막는다)
+BUS_EARLIER_S = 120           # 버스: 빨라지는 쪽은 더 빨리 따라간다 (늦게 알려 주는 것보다 일찍 알려 주는 게 낫다)
+SAME_BUS_S = 90               # 버스 이름(차량 ID·번호판·순번)이 바뀌어도 같은 노선에서 도착이 이만큼 안쪽이면 같은 버스로 본다
 
 REALTIME_URL = "http://swopenAPI.seoul.go.kr/api/subway/{key}/json/realtimeStationArrival/0/10/{station}"
 TIMETABLE_URL = "http://openapi.seoul.go.kr:8088/{key}/json/SearchSTNTimeTableByIDService/1/300/{code}/{week}/2/"
@@ -247,6 +253,16 @@ class Config:
     @property
     def leave_s(self):
         return (self.walk_min + self.buffer_min) * 60
+
+    @property
+    def pick_floor_s(self):
+        """새로 고를 차가 적어도 이만큼은 남아 있어야 한다.
+        열차는 시간표가 있고 자주 와서 '지금 나가면 여유 있게 타는 차'(leave_s)부터 고른다.
+        버스는 정류소마다 다음 2대만 보이고 배차가 길어서, 여유분을 못 챙겨도 걸어서 닿는 버스(도보 시간)면 고른다.
+        그 버스는 처음부터 go/run 으로 나온다. 고르자마자 '놓침'이 되지 않게 놓침 기준보다는 늘 크게 잡는다."""
+        if self.source == "bus":
+            return max(self.walk_min * 60, self.leave_s - RUN_S)
+        return self.leave_s
 
     # ── 화면 문구 (언어별) ──
     @property
@@ -822,6 +838,7 @@ class Frame:
 
 
 RUN_S = 120                   # 출발선을 넘겨도 이만큼은 "뛰면 가능" (여유분을 다 쓰고 1~2분 서두르면 되는 구간)
+STATE_RANK = {"relax": 0, "pack": 1, "go": 2, "run": 3, "missed": 4}   # 급한 순서
 
 
 def state_for(leave_in):
@@ -839,14 +856,16 @@ def state_for(leave_in):
 class Planner:
     """'지금 탈 열차'를 고르고 상태를 정한다. 시계·시간표·지연 공급원을 바꿔 끼우면 데모가 된다."""
 
-    def __init__(self, cfg, clock, trains_for, realtime=None, speed=1):
+    def __init__(self, cfg, clock, trains_for, realtime=None, speed=1, pick_floor_s=None):
         self.cfg = cfg
+        self.pick_floor_s = cfg.leave_s if pick_floor_s is None else pick_floor_s
         self.clock = clock                 # () -> datetime
         self.trains_for = trains_for       # (date) -> [Train] | None
         self.realtime = realtime           # Realtime 또는 None(데모·times·gtfs)
         self.speed = speed
         self.current = None                # 지금 보여 주는 열차
         self.missed_at = None              # 놓침 표시를 시작한 실제 시각
+        self.state = None                  # 지금 보여 주는 상태 (되돌아갈 때 STATE_HYST_S 를 둔다)
 
     def _all_trains(self, now):
         today = self.trains_for(now.date())
@@ -868,8 +887,16 @@ class Planner:
                 return seen
         return train.arrive + timedelta(seconds=self._delay())
 
+    def _settle(self, leave_in):
+        """상태 정하기. 더 급해질 때는 바로, 덜 급해질 때는 STATE_HYST_S 만큼 여유가 더 생겨야 돌아간다."""
+        raw = state_for(leave_in)
+        if self.state is None or STATE_RANK[raw] >= STATE_RANK[self.state]:
+            return raw
+        calmer = state_for(leave_in - STATE_HYST_S)
+        return calmer if STATE_RANK[calmer] < STATE_RANK[self.state] else self.state
+
     def _pick(self, trains, now):
-        earliest = now + timedelta(seconds=self.cfg.leave_s)
+        earliest = now + timedelta(seconds=self.pick_floor_s)
         for t in trains:
             if self._eta(t) >= earliest:
                 return t
@@ -884,13 +911,26 @@ class Planner:
         if self.realtime:
             self.realtime.maybe_poll(now, trains)
 
-        if self.current is not None and self.current not in trains:
-            # 시간표가 새로 로드됐으면 같은 번호의 열차로 갈아탄다
-            self.current = next((t for t in trains if t.no == self.current.no), None)
+        if self.missed_at is None and self.current is not None and self.current not in trains:
+            # 시간표가 새로 로드됐으면(버스는 호출할 때마다) 같은 번호의 차로 갈아탄다
+            same = next((t for t in trains if t.no == self.current.no), None)
+            if same is None and self.current.label:
+                # 버스는 응답에 따라 차량 ID·번호판·순번 중 다른 이름으로 올 수 있다. 같은 노선·비슷한 도착이면 같은 버스
+                old = self._eta(self.current)
+                same = next((t for t in trains if t.label == self.current.label
+                             and abs((self._eta(t) - old).total_seconds()) <= SAME_BUS_S), None)
+            if same is None and self.state in ("go", "run"):
+                # 나가야 할 때 따라가던 차가 목록에서 빠졌다 = 정류장을 지나갔다. 놓침을 보여 주고 다음 차로
+                self.missed_at = time.time()
+                log(tr(f"놓쳤어요: {self.current} 가 목록에서 빠짐 → {MISSED_HOLD_S}초 뒤 다음 차",
+                       f"Missed {self.current}: gone from the list → next one in {MISSED_HOLD_S}s"))
+            else:
+                self.current = same
 
         if self.current is None:
             self.current = self._pick(trains, now)
             self.missed_at = None
+            self.state = None
             if self.current is None:
                 return "notice", self.cfg.notice("no_train")
             log(tr(f"탈 열차: {self.current} (지연 보정 {self._delay():+d}초)",
@@ -898,7 +938,8 @@ class Planner:
 
         arrive_in = (self._eta(self.current) - now).total_seconds()
         leave_in = arrive_in - self.cfg.leave_s
-        state = state_for(leave_in)
+        # 놓침은 한번 시작하면 MISSED_HOLD_S 동안 그대로 (예측이 다시 늘어나도 되돌리지 않는다)
+        state = "missed" if self.missed_at is not None else self._settle(leave_in)
 
         if state == "missed":
             if self.missed_at is None:
@@ -908,9 +949,9 @@ class Planner:
             elif time.time() - self.missed_at >= MISSED_HOLD_S:
                 self.current = None
                 self.missed_at = None
+                self.state = None
                 return self.tick()
-        else:
-            self.missed_at = None
+        self.state = state
 
         return "frame", Frame(
             state, arrive_in, self.speed,
@@ -1107,14 +1148,23 @@ class BusSource:
     시간표가 따로 없다. 일정 간격(poll_s)으로 정류소 도착정보를 불러, 노선별 첫째·둘째 버스의
     '몇 초 후 도착'을 절대 시각(Train.arrive)으로 바꿔 둔다. 다음 호출 전까지는 그 시각이 고정이라
     보드의 카운트다운이 매끄럽다. 버스는 차량 ID 로 구분해서, 호출이 바뀌어도 같은 버스를 따라간다.
+
+    예측은 분 단위라 호출마다 튄다. 같은 버스(차량 ID·번호판)라면
+      - BUS_DEADBAND_S 보다 작게 바뀐 건 무시하고,
+      - 늦어지는 쪽은 BUS_LATER_S, 빨라지는 쪽은 BUS_EARLIER_S 까지만 한 번에 따라간다.
+    순번 이름(6616#1)은 앞차가 지나가면 다른 버스를 가리키게 되므로 다듬지 않는다.
+    응답에 고른 노선 줄이 하나도 없으면(결과 없음 등) 한 번은 일시적인 것으로 보고 이전 목록을 그대로 둔다.
+    일부 버스만 빠졌으면 그 버스는 정류장을 지나간 것이다.
     """
 
-    def __init__(self, cfg, requests_mod):
+    def __init__(self, cfg, requests_mod, clock=datetime.now):
         self.cfg = cfg
         self.requests = requests_mod
-        self.last_poll = 0.0
+        self.clock = clock
+        self.polled_at = None          # 마지막 호출 시각
         self.trains = None             # 마지막으로 성공한 결과. 처음 실패하면 None → '오류' 화면
         self.fetched_at = None
+        self.kept_empty = False        # 빈 응답에 이전 목록을 한 번 남겨 뒀나
 
     def ok(self):
         return bool(self.cfg.bus_key and self.cfg.bus_station_id and self.cfg.bus_routes)
@@ -1123,11 +1173,11 @@ class BusSource:
         return f"{self.cfg.bus_station_id} / {','.join(self.cfg.bus_routes)}"
 
     def trains_for(self, day):
-        now = datetime.now()
+        now = self.clock()
         if day != now.date():          # 버스는 '지금' 정보만 있다 (어제·내일 시간표 없음)
             return []
-        if time.time() - self.last_poll >= self.cfg.poll_s:
-            self.last_poll = time.time()
+        if self.polled_at is None or (now - self.polled_at).total_seconds() >= self.cfg.poll_s:
+            self.polled_at = now
             self._poll(now)
         # 호출이 계속 실패하면 오래된 값을 믿지 않는다 (5분 넘으면 오류 화면)
         if self.trains is not None and self.fetched_at is not None \
@@ -1163,20 +1213,41 @@ class BusSource:
             rows = [rows]
 
         wanted = {str(r) for r in self.cfg.bus_routes}
+        prev = {t.no: t for t in (self.trains or []) if "#" not in t.no}   # 다듬을 수 있는 건 차량 ID 가 있는 버스만
         trains = []
+        seen_route = False             # 고른 노선의 줄이 응답에 있었나 (있는데 버스가 없으면 진짜로 없는 것)
         for row in rows:
             route = str(row.get("routeName", "")).strip()
             if route not in wanted:
                 continue
+            seen_route = True
             for n in ("1", "2"):
                 eta = self._seconds(row, n)
                 if eta is None:
                     continue
                 # 차량 ID(없으면 차량 번호)로 같은 버스를 따라간다. 둘 다 없으면 순번(#1, #2)으로
-                veh = str(row.get("vehId" + n) or row.get("plateNo" + n) or "").strip()
+                ids = (str(row.get(k + n) or "").strip() for k in ("vehId", "plateNo"))
+                veh = next((v for v in ids if v and v != "0"), "")
                 no = f"{route}-{veh}" if veh else f"{route}#{n}"
-                trains.append(Train(no, now + timedelta(seconds=eta), label=route))
+                arrive = now + timedelta(seconds=eta)
+                old = prev.get(no)
+                if old is not None:
+                    delta = (arrive - old.arrive).total_seconds()
+                    if abs(delta) < BUS_DEADBAND_S:
+                        arrive = old.arrive
+                    else:
+                        arrive = old.arrive + timedelta(seconds=max(-BUS_EARLIER_S, min(BUS_LATER_S, delta)))
+                trains.append(Train(no, arrive, label=route))
         trains.sort(key=lambda t: t.arrive)
+        if not seen_route and self.trains and not self.kept_empty:
+            # 고른 노선이 응답에서 통째로 빠졌다. 한 번은 일시적인 것으로 보고 이전 목록을 둔다 (두 번 연속이면 비운다).
+            # 노선 줄은 있는데 도착 예정이 없으면(정류장에 닿음 등) 이전 목록을 두지 않는다
+            self.kept_empty = True
+            self.fetched_at = now
+            log(tr("버스 도착정보: 고른 노선이 안 보여 이전 값을 한 번 더 씁니다",
+                   "Bus arrivals: no selected route in the response — keeping the previous list once"))
+            return
+        self.kept_empty = False
         self.trains, self.fetched_at = trains, now
         log(tr(f"버스 도착정보: {', '.join(f'{t.label} {mmss((t.arrive - now).total_seconds())}' for t in trains) or '도착 예정 없음'}",
                f"Bus arrivals: {', '.join(f'{t.label} {mmss((t.arrive - now).total_seconds())}' for t in trains) or 'none'}"))
@@ -1184,11 +1255,12 @@ class BusSource:
     @staticmethod
     def _seconds(row, n):
         """predictTimeSec(초) 가 있으면 그것, 없으면 predictTime(분) 을 초로. 둘 다 없으면 None."""
-        def num(v):                    # 숫자로 오든 문자열("5")로 오든 받는다. 빈 값("")은 없음
+        def num(v):                    # 숫자로 오든 문자열("5")로 오든 받는다. 빈 값(""), 0, 음수(빈 자리 표시)는 없음
             try:
-                return int(float(v))
+                v = int(float(v))
             except (TypeError, ValueError):
                 return None
+            return v if v > 0 else None
         sec = num(row.get("predictTimeSec" + n))
         if sec is not None:
             return sec
@@ -1345,7 +1417,7 @@ def main():
         if is_demo:
             clock = DemoClock(demo_speed, start_delay)
             return Planner(cfg, clock.now, demo_trains, realtime=None, speed=demo_speed)
-        return Planner(cfg, datetime.now, trains_for, realtime=realtime, speed=1)
+        return Planner(cfg, datetime.now, trains_for, realtime=realtime, speed=1, pick_floor_s=cfg.pick_floor_s)
 
     planner = make_planner(demo)
     if source_note and trains_for is not None:
@@ -1356,7 +1428,8 @@ def main():
     if not demo and cfg.on_at is not None and not args.always_on:
         when = f"{cfg.on_at // 60:02d}:{cfg.on_at % 60:02d} ~ {cfg.off_at // 60:02d}:{cfg.off_at % 60:02d}"
         log(tr(f"자동 켜짐 {when}", f"Screen on {when}")
-            + (tr(f", 실시간은 {cfg.poll_s}초마다", f", realtime poll every {cfg.poll_s}s") if realtime else ""))
+            + (tr(f", 실시간은 {cfg.poll_s}초마다", f", realtime poll every {cfg.poll_s}s")
+               if realtime or cfg.source == "bus" else ""))
     elif not demo:
         log(tr("스케줄 무시, 바로 켬", "Ignoring the schedule, screen on now")
             + (tr(f". 실시간은 {cfg.poll_s}초마다", f". Realtime poll every {cfg.poll_s}s") if realtime else ""))

@@ -41,6 +41,14 @@ Find a Gyeonggi stop id (stationId) with the station-list API (same portal, keyw
 `https://apis.data.go.kr/6410000/busstationservice/v2/getBusStationListv2?keyword=정류소이름`
 (add your service key). Then set `TRAIN_SOURCE=bus`, `BUS_STATION_ID`, `BUS_ROUTES=6616,6638`.
 
+How the bus source differs from trains: the API shows only the next two buses per route and has no timetable, so
+a bus is picked as long as you can still walk there (walk time left), even if the buffer is gone — it then starts
+in "Leave now!" / "Run". Predictions are whole minutes and jump, so for the same vehicle the host ignores changes
+under 30 s and follows at most +30 s later / −120 s earlier per poll, and a calmer state needs 60 s of extra
+margin before the board steps back. A tracked bus that drops out of the list while you should be leaving is shown
+as "Missed it" for 5 s. A response with none of your routes is treated as a glitch once (the second in a row
+clears the list); a route that is listed with no arrival time (e.g. the bus is at the stop) counts as gone.
+
 The planner, the walk-time maths, the ON/OFF window and the buttons are shared by all four.
 
 ### 1. Hardware
@@ -212,6 +220,13 @@ build/nu40_commute/*.uf2        pre-built firmware for drag-and-drop flashing
 경기도 버스 정류소 ID 는
 `https://apis.data.go.kr/6410000/busstationservice/v2/getBusStationListv2?keyword=정류소이름`
 (공공데이터포털 인증키 필요) 로 찾고, `BUS_STATION_ID` · `BUS_ROUTES` · `BUS_API_KEY` 를 채웁니다.
+
+버스는 열차와 이렇게 다릅니다. 시간표가 없고 노선마다 다음 2대만 보여서, 여유분이 없어도 **걸어서 닿을 수 있는 버스**
+(도보 시간 이상 남은 버스)면 고르고 처음부터 '출발'/'뛰면 가능'으로 보여 줍니다. 예측은 분 단위라 튀므로, 같은 차량이면
+30초 안쪽 변화는 무시하고 한 번 호출에 늦어지는 쪽 +30초, 빨라지는 쪽 −120초까지만 따라갑니다. 덜 급한 상태로 돌아갈 때는
+60초 여유가 더 생겨야 돌아갑니다. 나가야 할 때 따라가던 버스가 목록에서 빠지면 5초 동안 '놓침'을 보여 주고,
+고른 노선이 응답에서 통째로 한 번 빠진 건 일시적인 것으로 봅니다(두 번 연속이면 비웁니다).
+노선 줄은 있는데 도착 예정이 없으면(정류장에 닿음 등) 지나간 것으로 봅니다.
 
 ![화면 4종](tools/preview/all.png)
 
