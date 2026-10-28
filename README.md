@@ -8,7 +8,7 @@
 
 ![상태별 화면](tools/preview/en_all.png)
 
-| 버스가 다가오는 모습 | PC가 꺼져 있을 때 |
+| 다가오는 버스 | 잠자는 화면 |
 |:---:|:---:|
 | ![데모](tools/preview/en_demo.gif) | ![잠자는 화면](tools/preview/sleep.gif) |
 
