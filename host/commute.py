@@ -98,12 +98,16 @@ NOTICES = {
         "no_bus": "탈 버스 없음",
         "error": "오류… 다시 시도 중",
         "off_hours": "알림 시간 아님",
+        "bed": "이제 잘 시간이야!",
+        "bye": "나도 자러 갈게. 잘 자!",
     },
     "en": {
         "wait": "Waiting for PC...",
         "no_bus": "No bus to catch",
         "error": "Error, retrying...",
         "off_hours": "Off hours",
+        "bed": "Time to sleep!",
+        "bye": "Me too. Good night!",
     },
 }
 
@@ -163,6 +167,20 @@ def parse_hhmm(text, name):
     return int(m.group(1)) * 60 + int(m.group(2))
 
 
+def parse_once(text, name):
+    """'YYYY-MM-DD HH:MM' → (날짜, 분). 비었거나 형식이 틀리면 None."""
+    text = (text or "").strip()
+    if not text:
+        return None
+    try:
+        dt = datetime.strptime(text, "%Y-%m-%d %H:%M")
+    except ValueError:
+        log(tr(f"{name}='{text}' 는 YYYY-MM-DD HH:MM 형식이 아니라 무시합니다.",
+               f"{name}='{text}' is not YYYY-MM-DD HH:MM — ignored."))
+        return None
+    return dt.date(), dt.hour * 60 + dt.minute
+
+
 class Config:
     def __init__(self, lang_override=None):
         global _LANG
@@ -200,6 +218,12 @@ class Config:
         self.buffer_min = self._int(merged.get("BUFFER_MINUTES"), 1, "BUFFER_MINUTES")
         self.on_at = parse_hhmm(merged.get("ON_AT", "06:30"), "ON_AT")
         self.off_at = parse_hhmm(merged.get("OFF_AT", "09:30"), "OFF_AT")
+        # 그날 하루만 OFF_AT 대신 쓰는 끄는 시각 ('2026-10-29 18:00'). 다른 날엔 무시
+        self.off_at_once = parse_once(merged.get("OFF_AT_ONCE", ""), "OFF_AT_ONCE")
+        # 버스 시간대 밖의 장면. 비우면 그 장면 없이 화면을 끈다
+        self.dino_until = parse_hhmm(merged.get("DINO_UNTIL", ""), "DINO_UNTIL")     # OFF_AT 부터 이때까지 공룡
+        self.bed_at = parse_hhmm(merged.get("BED_AT", ""), "BED_AT")                 # 이때부터 토끼가 자라고 한다
+        self.bed_off_at = parse_hhmm(merged.get("BED_OFF_AT", "00:00"), "BED_OFF_AT")  # 토끼도 자러 가고 화면 끔
         self.demo_speed = max(1, self._int(merged.get("DEMO_SPEED"), 8, "DEMO_SPEED"))
 
     @staticmethod
@@ -239,6 +263,15 @@ class Config:
 
     def notice(self, key):
         return NOTICES[self.lang][key]
+
+    def scene_text(self, scene):
+        return {"dino": "", "bunny": self.notice("bed"), "bye": self.notice("bye")}[scene]
+
+    def off_at_on(self, day):
+        """그날의 끄는 시각 (OFF_AT_ONCE 가 그날이면 그 값)."""
+        if self.off_at_once and self.off_at_once[0] == day:
+            return self.off_at_once[1]
+        return self.off_at
 
     def screen_texts(self):
         """보드에 보낼 수 있는 모든 문구 (글꼴 검사용)."""
@@ -494,7 +527,14 @@ class BoardLink:
             try:
                 self.ser = serial.Serial(self.port, BAUD, timeout=1)
             except Exception:
-                continue
+                found = find_port()        # 다른 USB 구멍에 꽂으면 포트 이름이 바뀐다
+                if not found or found == self.port:
+                    continue
+                try:
+                    self.ser = serial.Serial(found, BAUD, timeout=1)
+                except Exception:
+                    continue
+                self.port = found
             log(tr(f"보드 다시 연결됨: {self.port}", f"Board reconnected: {self.port}"))
             with self._lock:
                 self.incoming.append("READY")   # 상태를 처음부터 다시 보내게 한다
@@ -594,14 +634,40 @@ def font_missing_chars(texts):
 # ─────────────────────────────────────────────────────────────
 # 켜짐/꺼짐 스케줄
 # ─────────────────────────────────────────────────────────────
+def _between(start, end, cur):
+    """start <= cur < end (분). 자정을 넘는 구간(22:00~01:00)도 된다."""
+    if start <= end:
+        return start <= cur < end
+    return cur >= start or cur < end
+
+
 def in_window(cfg, now):
-    """ON_AT~OFF_AT 사이인가. 둘 다 없으면 항상 True. 자정을 넘는 구간(22:00~01:00)도 된다."""
-    if cfg.on_at is None or cfg.off_at is None:
+    """ON_AT~OFF_AT(그날의 OFF_AT_ONCE 반영) 사이인가. 둘 다 없으면 항상 True."""
+    off_at = cfg.off_at_on(now.date())
+    if cfg.on_at is None or off_at is None:
         return True
+    return _between(cfg.on_at, off_at, now.hour * 60 + now.minute)
+
+
+SCENES = ("dino", "bunny", "bye")
+BYE_S = 60                    # BED_OFF_AT 에 토끼가 "나도 잘게" 하고 있는 시간. 그 뒤 화면을 끈다
+
+
+def scene_at(cfg, now):
+    """지금 화면에 무엇을 보일까: 'bus', 'dino', 'bunny', 'bye', 없으면 None (화면 끔)."""
+    if in_window(cfg, now):
+        return "bus"
     cur = now.hour * 60 + now.minute
-    if cfg.on_at <= cfg.off_at:
-        return cfg.on_at <= cur < cfg.off_at
-    return cur >= cfg.on_at or cur < cfg.off_at
+    if cfg.bed_at is not None and cfg.bed_off_at is not None:
+        if _between(cfg.bed_at, cfg.bed_off_at, cur):
+            return "bunny"
+        since = (now.hour * 3600 + now.minute * 60 + now.second - cfg.bed_off_at * 60) % 86400
+        if since < BYE_S:
+            return "bye"
+    off_at = cfg.off_at_on(now.date())
+    if cfg.dino_until is not None and off_at is not None and off_at <= cur < cfg.dino_until:
+        return "dino"
+    return None
 
 
 # ─────────────────────────────────────────────────────────────
@@ -955,8 +1021,15 @@ def main():
            f"Mode: {'demo (' + str(demo_speed) + 'x clock)' if demo else 'live'}")
         + (tr(f", {args.start_after:.0f}초 뒤에 화면 켬", f", screen on after {args.start_after:.0f}s") if args.start_after else ""))
     if not demo and cfg.on_at is not None and not args.always_on:
-        when = f"{cfg.on_at // 60:02d}:{cfg.on_at % 60:02d} ~ {cfg.off_at // 60:02d}:{cfg.off_at % 60:02d}"
+        hm = lambda m: f"{m // 60:02d}:{m % 60:02d}"
+        off_today = cfg.off_at_on(datetime.now().date())
+        when = f"{hm(cfg.on_at)} ~ {hm(off_today)}" + (tr(" (오늘만)", " (today only)") if off_today != cfg.off_at else "")
         log(tr(f"자동 켜짐 {when}, 버스 정보는 {cfg.poll_s}초마다", f"Screen on {when}, bus poll every {cfg.poll_s}s"))
+        if cfg.dino_until is not None:
+            log(tr(f"공룡: 버스 시간 뒤 ~ {hm(cfg.dino_until)}", f"Dinosaur: after the bus window ~ {hm(cfg.dino_until)}"))
+        if cfg.bed_at is not None and cfg.bed_off_at is not None:
+            log(tr(f"토끼: {hm(cfg.bed_at)} ~ {hm(cfg.bed_off_at)}, 그 뒤 화면 끔",
+                   f"Bunny: {hm(cfg.bed_at)} ~ {hm(cfg.bed_off_at)}, then screen off"))
     elif not demo:
         log(tr(f"스케줄 무시, 바로 켬. 버스 정보는 {cfg.poll_s}초마다",
                f"Ignoring the schedule, screen on now. Bus poll every {cfg.poll_s}s"))
@@ -968,16 +1041,17 @@ def main():
     mode_sent = None             # 마지막으로 보낸 M| 값
     last_frame = None
     last_notice = None
+    last_scene = None            # 마지막으로 보낸 A| 줄
     last_send = 0.0
     last_summary = ""
 
     def send_power(on, off_hours=False):
-        nonlocal power_sent, last_frame, last_notice
+        nonlocal power_sent, last_frame, last_notice, last_scene
         if power_sent != on:
             if not on and off_hours:
                 # 꺼진 동안 S1 로 켜 보면 옛 화면 대신 이 안내가 보이게
                 link.send(f"N|{cfg.notice('off_hours')}")
-                last_frame, last_notice = None, cfg.notice("off_hours")
+                last_frame, last_notice, last_scene = None, cfg.notice("off_hours"), None
             link.send("P|on" if on else "P|off")
             power_sent = on
             log(tr("화면 켬" if on else "화면 끔", "Screen on" if on else "Screen off"))
@@ -1013,7 +1087,7 @@ def main():
                 if line == "READY":
                     log(tr("보드 준비됨 — 현재 상태를 다시 보냅니다.", "Board ready — resending the current state."))
                     power_sent = mode_sent = None
-                    last_frame = last_notice = None
+                    last_frame = last_notice = last_scene = None
                     arming = False             # 재부팅되면 보드의 10초 카운트도 사라진다
                 elif line == "BTN|2":
                     if demo and buses_for is None:
@@ -1048,6 +1122,7 @@ def main():
 
             # 2) 켜짐/꺼짐 결정
             off_hours = False
+            scene = None
             if manual_on is not None:
                 want_on = manual_on
             elif args.start_after and now_real - started < args.start_after:
@@ -1055,7 +1130,8 @@ def main():
             elif demo or args.always_on:
                 want_on = True
             else:
-                want_on = in_window(cfg, datetime.now())
+                scene = scene_at(cfg, datetime.now())
+                want_on = scene is not None
                 off_hours = not want_on
             send_power(want_on, off_hours)
             send_mode()
@@ -1066,7 +1142,19 @@ def main():
                 time.sleep(1.0)
                 continue
 
-            # 3) 상태 계산 → 보드로
+            # 3) 버스 시간대 밖의 장면 (공룡, 토끼). 보드가 혼자 움직이고, API 는 부르지 않는다
+            if scene in SCENES:
+                line = f"A|{scene}|{cfg.scene_text(scene)}"
+                if line != last_scene or now_real - last_send >= keepalive:
+                    link.send(line)
+                    render(line)
+                    if line != last_scene:
+                        log(tr(f"장면: {scene}", f"Scene: {scene}"))
+                    last_scene, last_frame, last_notice, last_send = line, None, None, now_real
+                time.sleep(1.0)
+                continue
+
+            # 4) 상태 계산 → 보드로
             kind, payload = planner.tick()
             if kind == "notice":
                 if payload != last_notice or now_real - last_send >= keepalive:
@@ -1075,7 +1163,7 @@ def main():
                     render(line)
                     if payload != last_notice:
                         log(tr(f"안내: {payload}", f"Notice: {payload}"))
-                    last_notice, last_frame, last_send = payload, None, now_real
+                    last_notice, last_frame, last_scene, last_send = payload, None, None, now_real
             else:
                 frame = payload
                 changed = not frame.same_as(last_frame)
@@ -1083,7 +1171,7 @@ def main():
                     line = frame.line()
                     link.send(line)
                     render(line)
-                    last_frame, last_notice, last_send = frame, None, now_real
+                    last_frame, last_notice, last_scene, last_send = frame, None, None, now_real
                 summary = planner.describe(frame)
                 if changed or summary.split("|")[0] != last_summary.split("|")[0]:
                     log((tr("데모 | ", "demo | ") if demo else tr("실시간 | ", "live | ")) + summary)
