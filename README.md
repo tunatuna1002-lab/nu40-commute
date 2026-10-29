@@ -338,6 +338,21 @@ python3 -m venv .venv
 3. 데모 모드는 시간대와 관계없이 항상 켭니다.
 4. PC가 갑자기 꺼지거나 케이블이 빠져도 보드는 30초 뒤 스스로 잠자는 화면으로 바뀝니다.
 
+**맥에서 자동으로 켜기**
+
+PC 프로그램이 돌아야 보드에 버스가 나옵니다. 매일 아침 직접 켜기 싫으면 로그인할 때 혼자 켜지게 하세요.
+
+```bash
+host/autostart_mac.sh install     # 지금 시작하고, 로그인할 때마다 시작
+host/autostart_mac.sh status      # 돌고 있는지와 최근 기록
+host/autostart_mac.sh uninstall   # 자동 시작 끄기
+```
+
+1. 기록은 `~/Library/Logs/nu40-commute.log`에 쌓입니다.
+2. 프로그램이 끝나면(보드가 안 꽂혀 있을 때 등) 30초 뒤 다시 켜집니다.
+3. 저장소가 `문서`·`데스크탑`·`다운로드` 폴더 안에 있으면 처음에 맥이 "Python이 폴더에 접근하려고 합니다"라고 묻습니다. **허용**을 누르세요. 창을 놓쳤으면 `시스템 설정 → 개인정보 보호 및 보안 → 파일 및 폴더`에서 Python을 켭니다.
+4. 자동 시작 중에는 터미널에서 따로 `commute.py`를 켜지 마세요. 두 프로그램이 같은 포트를 두고 다툽니다. 먼저 `uninstall` 하세요.
+
 ---
 
 ## 8. 자주 나는 문제
@@ -345,7 +360,7 @@ python3 -m venv .venv
 | 증상 | 확인할 것 |
 |---|---|
 | 화면이 안 켜짐 | SDA/SCL을 바꿔 꽂아 보기, VCC가 3V3인지, 점퍼선 교체. 시리얼 모니터에 `ERR\|No OLED`가 반복되면 배선 문제 |
-| 잠자는 화면에서 안 바뀜 | PC 프로그램이 안 돌거나 포트가 다름. 아두이노 시리얼 모니터를 닫았는지 확인 |
+| 잠자는 화면에서 안 바뀜 | PC 프로그램이 안 돌거나 포트가 다름. 아두이노 시리얼 모니터를 닫았는지 확인. 자동 시작이면 `host/autostart_mac.sh status`로 기록 확인 |
 | 화면이 꺼져 있음 | `ON_AT`~`OFF_AT` 밖이면 정상. S1을 누르거나 `--always-on` |
 | `No bus to catch` | 걸어서 탈 수 있는 버스가 없음 (너무 가까이 왔거나, 늦은 밤이라 운행이 없음) |
 | `... response is not JSON` | 그 API의 활용신청이 안 됐거나, 키가 아직 활성화 전이거나, 하루 한도 초과 |
@@ -466,6 +481,7 @@ PC는 상태나 문구가 바뀌면 바로, 아니면 5초(데모 2초)마다 �
 | `host/commute.py` | PC 프로그램: 버스 도착정보 → 탈 버스 → 상태 → 시리얼 |
 | `host/config.example.env` | 설정 템플릿 (`host/.env`로 복사) |
 | `host/requirements.txt` | 파이썬 라이브러리 |
+| `host/autostart_mac.sh` | 맥 로그인 때 자동 시작 (launchd) |
 | `firmware/nu40_commute/nu40_commute.ino` | 보드 펌웨어 (그리기, 카운트다운, 버튼, LED) |
 | `firmware/nu40_commute/commute_font.h` | 글꼴 데이터 (자동 생성물, 고치지 말 것) |
 | `build/nu40_commute/nu40_commute.uf2` | 컴파일된 펌웨어 (복사해서 굽기) |

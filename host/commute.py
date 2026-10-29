@@ -440,9 +440,12 @@ def find_port():
     for p in list_ports.comports():
         if p.vid in (0x239A, 0x2FE3):
             boards.append(p.device)
-        elif "usbmodem" in p.device or "USB" in (p.description or ""):
+        elif p.vid is None and ("usbmodem" in p.device or "USB" in (p.description or "")):
             others.append(p.device)
-    # 모니터 같은 다른 USB 시리얼 장치보다 VID 가 맞는 보드를 먼저 고른다
+        elif any(k in (p.description or "") for k in ("nRF52", "NU40")):
+            others.append(p.device)
+    # VID 가 맞는 보드를 먼저 고른다. 모니터처럼 다른 VID 를 밝힌 장치는 고르지 않는다
+    # (보드를 뽑은 채 자동 시작해도 엉뚱한 포트를 잡지 않게. 그런 보드는 SERIAL_PORT 로 지정)
     candidates = boards + others
     for c in candidates:
         if c.startswith("/dev/cu."):
