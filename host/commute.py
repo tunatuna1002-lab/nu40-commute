@@ -436,12 +436,14 @@ def find_port():
         from serial.tools import list_ports
     except ImportError:
         return None
-    candidates = []
+    boards, others = [], []
     for p in list_ports.comports():
         if p.vid in (0x239A, 0x2FE3):
-            candidates.append(p.device)
+            boards.append(p.device)
         elif "usbmodem" in p.device or "USB" in (p.description or ""):
-            candidates.append(p.device)
+            others.append(p.device)
+    # 모니터 같은 다른 USB 시리얼 장치보다 VID 가 맞는 보드를 먼저 고른다
+    candidates = boards + others
     for c in candidates:
         if c.startswith("/dev/cu."):
             return c
