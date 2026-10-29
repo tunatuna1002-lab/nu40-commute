@@ -53,6 +53,7 @@ ROOT = HERE.parent
 BAUD = 115200                 # 시리얼 속도. 펌웨어와 같아야 한다.
 WINDOW_S = 16 * 60            # 보드 도로 왼쪽 끝(도착 16분 전). 그보다 멀면 "16:00+"
 MISSED_HOLD_S = 5             # "놓쳤어요"를 보여 주는 시간(실제 초)
+WRITE_TIMEOUT_S = 2           # 보드가 멈춰 안 읽을 때 쓰기를 포기하는 시간 (PC 프로그램이 같이 멈추지 않게)
 KEEPALIVE_S = 5               # 바뀐 게 없어도 이 간격으로 S 줄을 다시 보낸다(보드 카운트다운 재동기)
 HTTP_TIMEOUT = 10
 MIN_POLL_S = 30               # 버스 호출 최소 간격
@@ -504,7 +505,7 @@ class BoardLink:
             raise RuntimeError(tr("pyserial 이 없습니다.  pip3 install -r host/requirements.txt",
                                   "pyserial is not installed.  pip3 install -r host/requirements.txt"))
         try:
-            self.ser = serial.Serial(self.port, BAUD, timeout=1)
+            self.ser = serial.Serial(self.port, BAUD, timeout=1, write_timeout=WRITE_TIMEOUT_S)
         except Exception:
             raise RuntimeError(tr(
                 f"시리얼 포트를 열 수 없습니다: {self.port}\n"
@@ -525,13 +526,13 @@ class BoardLink:
         while not self._stop:
             time.sleep(1)
             try:
-                self.ser = serial.Serial(self.port, BAUD, timeout=1)
+                self.ser = serial.Serial(self.port, BAUD, timeout=1, write_timeout=WRITE_TIMEOUT_S)
             except Exception:
                 found = find_port()        # 다른 USB 구멍에 꽂으면 포트 이름이 바뀐다
                 if not found or found == self.port:
                     continue
                 try:
-                    self.ser = serial.Serial(found, BAUD, timeout=1)
+                    self.ser = serial.Serial(found, BAUD, timeout=1, write_timeout=WRITE_TIMEOUT_S)
                 except Exception:
                     continue
                 self.port = found
@@ -565,11 +566,16 @@ class BoardLink:
         if self.ser is None:            # 다시 연결되는 중
             return False
         try:
+            # flush()(tcdrain) 는 시간 제한 없이 막힐 수 있어 쓰지 않는다. 보드가 안 읽으면 write_timeout 에 걸린다
             self.ser.write((line + "\n").encode("utf-8"))
-            self.ser.flush()
             return True
         except Exception:
-            log(tr("보드로 보내지 못했습니다. USB 케이블을 확인하세요.", "Could not write to the board. Check the USB cable."))
+            log(tr("보드로 보내지 못했습니다. USB 케이블을 확인하세요. 다시 연결합니다.",
+                   "Could not write to the board. Check the USB cable. Reconnecting."))
+            try:
+                self.ser.close()            # 읽기 스레드가 오류를 보고 다시 연결한다
+            except Exception:
+                pass
             return False
 
     def close(self):
