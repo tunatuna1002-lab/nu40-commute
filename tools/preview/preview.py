@@ -53,6 +53,18 @@ NOTICE_Y = 26                        # 안내 화면 글자 윗줄
 SLEEP_RAIL_Y = 36                    # 잠자는 화면 도로 줄
 SLEEP_BUS_X = 44                     # 잠자는 버스 왼쪽 끝 x
 SLEEP_TEXT_Y = 45                    # 잠자는 화면 한 줄 글자 윗줄
+DINO_GROUND_Y = 44                   # 공룡 화면 땅 줄
+DINO_MIN_X = 5                       # 공룡 왼쪽 끝 x
+DINO_MAX_X = 105                     # 공룡 오른쪽 끝 x (폭 18 → 오른쪽 여백 5)
+DINO_SPAN = DINO_MAX_X - DINO_MIN_X  # 한쪽 이동 거리 (100틱 = 20초)
+DINO_TEXT_Y = 49                     # 공룡 화면 아래 글자 윗줄
+BUNNY_GROUND_Y = 56                  # 토끼 화면 땅 줄
+BUNNY_X = 6                          # 토끼 왼쪽 끝 x
+BUNNY_BUBBLE = (26, 34, 125, 48)     # 토끼 말풍선 (x0, y0, x1, y1)
+BUNNY_TEXT_Y = 36                    # 토끼 말풍선 안 글자 윗줄
+BYE_GROUND_Y = 38                    # 잘자 화면 땅 줄
+BYE_BUNNY_X = 48                     # 잠든 토끼 왼쪽 끝 x
+BYE_TEXT_Y = 46                      # 잘자 화면 아래 글자 윗줄
 
 # ── 픽셀 그림 (# = 켜진 픽셀) ─────────────────────────────
 BUS = """
@@ -181,6 +193,186 @@ STOP_SIGN = [
 ]
 FLAG = ["###", "##.", "#.."]
 
+# 장면 화면 (A| 줄) 스프라이트: 공룡(dino), 토끼(bunny), 잘자(bye)
+SUN = [                              # 해 (9x9)
+    "....#....",
+    ".#..#..#.",
+    "...###...",
+    "..#...#..",
+    "##.....##",
+    "..#...#..",
+    "...###...",
+    ".#..#..#.",
+    "....#....",
+]
+CLOUD = [                            # 구름 (12x5)
+    "...####.....",
+    "..#....###..",
+    ".#........#.",
+    "#..........#",
+    ".##########.",
+]
+GRASS = [                            # 풀포기 (5x3)
+    "#.#.#",
+    ".#.#.",
+    "..#..",
+]
+DINO_R = [                           # 오른쪽으로 걷는 아기 공룡 (18x16, 다리 2프레임)
+    [
+        ".......#######....",
+        "......#########...",
+        ".....###..######..",
+        "......##..######..",
+        ".....###########..",
+        "......#######.....",
+        ".....#########....",
+        "#...########......",
+        "##.###########....",
+        "###.########..#...",
+        ".############.....",
+        "..###########.....",
+        "...#########......",
+        "....###..###......",
+        "....##....###.....",
+        "....###...........",
+    ],
+    [
+        ".......#######....",
+        "......#########...",
+        ".....###..######..",
+        "......##..######..",
+        ".....###########..",
+        "......#######.....",
+        ".....#########....",
+        "#...########......",
+        "##.###########....",
+        "###.########..#...",
+        ".############.....",
+        "..###########.....",
+        "...#########......",
+        "....###..###......",
+        "....###...##......",
+        "..........###.....",
+    ],
+]
+DINO_L = [[row[::-1] for row in frame] for frame in DINO_R]
+DINO_W = len(DINO_R[0][0])           # 18
+DINO_H = len(DINO_R[0])              # 16
+
+BUNNY = [                            # 밤 인사 토끼 (18x22, 팔 흔들기 + 귀 쫑긋/눈 깜빡)
+    [
+        ".....##....##.....",
+        "....#..#..#..#....",
+        "....#..#..#..#....",
+        "....#..#..#..#....",
+        "....#..#..#..#....",
+        "....#..#..#..#....",
+        ".....########.....",
+        "...##........##...",
+        "..#............#..",
+        "..#............#..",
+        "..#..#......#..#..",
+        "..#..#......#..#..",
+        "..#.....##.....#..",
+        "...#..........#...",
+        "....##########....",
+        "....#........#..#.",
+        "...#..........##..",
+        "...#..........#...",
+        ".###..........#...",
+        ".#.#..........#...",
+        "..##..######..#...",
+        "....###....###....",
+    ],
+    [
+        ".....##....##.....",
+        "....#..#..#..#....",
+        "....#..#..#..#....",
+        "....#..#..#..#....",
+        "....#..#..#..#....",
+        "....#..#..#..#....",
+        ".....########.....",
+        "...##........##...",
+        "..#............#..",
+        "..#............#..",
+        "..#..#......#..#..",
+        "..#..#......#..#..",
+        "..#.....##.....#..",
+        "...#..........#...",
+        "....##########....",
+        "....#........#....",
+        "...#..........#...",
+        "...#..........##..",
+        ".###..........#.#.",
+        ".#.#..........#...",
+        "..##..######..#...",
+        "....###....###....",
+    ],
+    [
+        ".....##.....##....",
+        "....#..#...#..#...",
+        "....#..#...#..#...",
+        "....#..#..#..#....",
+        "....#..#..#..#....",
+        "....#..#..#..#....",
+        ".....########.....",
+        "...##........##...",
+        "..#............#..",
+        "..#............#..",
+        "..#............#..",
+        "..#..##....##..#..",
+        "..#.....##.....#..",
+        "...#..........#...",
+        "....##########....",
+        "....#........#....",
+        "...#..........#...",
+        "...#..........##..",
+        ".###..........#.#.",
+        ".#.#..........#...",
+        "..##..######..#...",
+        "....###....###....",
+    ],
+]
+BUNNY_W = len(BUNNY[0][0])           # 18
+BUNNY_H = len(BUNNY[0])              # 22
+
+BYE_BUNNY = [                        # 베개 베고 잠든 토끼 (28x14, 숨쉬기 2프레임)
+    [
+        "........######..............",
+        "......##......###...........",
+        ".....#...........####.......",
+        "......#########......##.....",
+        "....###........#.......#....",
+        "...#............#.......#...",
+        "..#.............#.......#...",
+        "..#.............#.##.##.#...",
+        "..#.............#...#...#...",
+        ".###.............#.....#.#..",
+        "#..#..............#####...#.",
+        "#..#.............#........#.",
+        ".###..###########........#..",
+        "....##...........########...",
+    ],
+    [
+        "............................",
+        "........######..............",
+        "......##......#######.......",
+        ".....#........#......##.....",
+        "......#########........#....",
+        "....###.........#.......#...",
+        "...#............#.......#...",
+        "..#.............#.##.##.#...",
+        "..#.............#...#...#...",
+        ".###.............#.....#.#..",
+        "#..#..............#####...#.",
+        "#..#.............#........#.",
+        ".###..###########........#..",
+        "....##...........########...",
+    ],
+]
+BYE_BUNNY_W = len(BYE_BUNNY[0][0])   # 28
+BYE_BUNNY_H = len(BYE_BUNNY[0])      # 14
+
 # 화면 문구 (host/commute.py 의 MESSAGES 와 같다). LANG=ko / en
 MESSAGES_BY_LANG = {
     "ko": {
@@ -192,6 +384,8 @@ MESSAGES_BY_LANG = {
         "bottom_left": "6616 {clock}",
         "walk": "도보4분",
         "wait": "연결 대기 중…",
+        "bunny": "이제 잘 시간이야!",
+        "bye": "나도 자러 갈게. 잘 자!",
     },
     "en": {
         "relax": "Plenty of time",
@@ -202,6 +396,8 @@ MESSAGES_BY_LANG = {
         "bottom_left": "6616 {clock}",
         "walk": "Walk 4 min",
         "wait": "Waiting for PC...",
+        "bunny": "Time to sleep!",
+        "bye": "Me too. Good night!",
     },
 }
 MESSAGES = MESSAGES_BY_LANG["ko"]          # 기본(한글) 시안
@@ -373,11 +569,82 @@ def render_boot():
     return render_sleep("")
 
 
+def render_scene(scene, text="", tick=0):
+    """장면 화면 (A| 줄). 펌웨어 drawDino() / drawBunny() / drawBye() 와 픽셀 단위로 같다."""
+    if scene not in ("dino", "bunny", "bye"):
+        raise ValueError(f"모르는 장면: {scene}")
+    img = Image.new("1", (W, H), 0)
+    d = ImageDraw.Draw(img)
+
+    if scene == "dino":
+        # 낮 배경: 해 + 구름 두 점 + 풀포기 + 땅 줄과 자갈
+        sprite(d, SUN, 12, 3)
+        sprite(d, CLOUD, 48, 6)
+        sprite(d, CLOUD, 96, 4)
+        sprite(d, GRASS, 24, DINO_GROUND_Y - 3)
+        sprite(d, GRASS, 94, DINO_GROUND_Y - 3)
+        d.line((0, DINO_GROUND_Y, 127, DINO_GROUND_Y), fill=1)
+        for x in range(3, 128, 12):
+            d.point((x, DINO_GROUND_Y + 1), 1)
+            if x + 5 < 128:
+                d.point((x + 5, DINO_GROUND_Y + 2), 1)
+
+        # 공룡: 땅 위를 1틱에 1px씩 좌우로 왕복 (순수 tick 함수)
+        phase = tick % (DINO_SPAN * 2)
+        facing_right = phase < DINO_SPAN
+        dx = (DINO_MIN_X + phase) if facing_right else (DINO_MAX_X - (phase - DINO_SPAN))
+        leg = (tick // 2) % 2
+        sprite(d, (DINO_R if facing_right else DINO_L)[leg], dx, DINO_GROUND_Y - DINO_H)
+
+        if text:
+            d.text(((W - text_w(text)) // 2, DINO_TEXT_Y), text, font=GALMURI, fill=1)
+        return img
+
+    if scene == "bunny":
+        # 밤하늘: 초승달 + 별
+        sprite(d, MOON, 12, 5)
+        sprite(d, STAR, 36, 8)
+        sprite(d, STAR, 76, 4)
+        sprite(d, STAR, 110, 7)
+
+        # 땅 줄 + 토끼 (팔 흔들기 + 4초마다 귀 쫑긋·눈 깜빡)
+        d.line((0, BUNNY_GROUND_Y, 127, BUNNY_GROUND_Y), fill=1)
+        for x in range(2, 128, 10):
+            d.point((x, BUNNY_GROUND_Y + 1), 1)
+        frame = 2 if (tick % 20 >= 18) else ((tick // 3) % 2)
+        sprite(d, BUNNY[frame], BUNNY_X, BUNNY_GROUND_Y - BUNNY_H)
+
+        # 말풍선 + 문구
+        x0, y0, x1, y1 = BUNNY_BUBBLE
+        bubble(d, x0, y0, x1, y1, "left")
+        d.text((x0 + (x1 - x0 + 1 - text_w(text)) // 2, BUNNY_TEXT_Y), text, font=GALMURI, fill=1)
+        return img
+
+    # scene == "bye": 밤하늘 + 떠오르는 z/Z + 베개 베고 잠든 토끼 + 아래 가운데 문구
+    step = (tick % 20) // 2
+    sprite(d, MOON, 14, 4)
+    sprite(d, STAR, 34, 7)
+    sprite(d, STAR, 106, 6)
+    sprite(d, Z_SMALL, 70 + step // 2, 18 - step)
+    sprite(d, Z_BIG, 76 + step // 2, 9 - step)
+
+    d.line((0, BYE_GROUND_Y, 127, BYE_GROUND_Y), fill=1)
+    for x in range(2, 128, 10):
+        d.point((x, BYE_GROUND_Y + 1), 1)
+    breath = (tick // 5) % 2
+    sprite(d, BYE_BUNNY[breath], BYE_BUNNY_X, BYE_GROUND_Y - BYE_BUNNY_H)
+
+    if text:
+        d.text(((W - text_w(text)) // 2, BYE_TEXT_Y), text, font=GALMURI, fill=1)
+    return img
+
+
 def render_line(line, tick=0):
     """시리얼 규약 한 줄을 화면으로. (host/commute.py --render 와 --line 옵션이 쓴다)
       S|<state>|<arrive_s>|<speed>|<leave_s>|<bottom_left>|<bottom_right>|<msg>
       N|<text>      안내 화면
       Z|<text>      잠자는 화면 (PC 가 멈출 때)
+      A|<scene>|<text> 장면 화면 (dino / bunny / bye)
       P|off         화면 꺼짐 (검은 화면)
     """
     line = line.strip()
@@ -396,6 +663,11 @@ def render_line(line, tick=0):
         return render_notice(line[2:])
     if line.startswith("Z|"):
         return render_sleep(line[2:], tick)
+    if line.startswith("A|"):
+        parts = line.split("|", 2)            # 마지막 칸(문구)은 자르지 않는다 (펌웨어 splitFields 와 같게)
+        scene = parts[1] if len(parts) > 1 else ""
+        text = parts[2] if len(parts) > 2 else ""
+        return render_scene(scene, text, tick)
     if line.startswith("P|"):
         return Image.new("1", (W, H), 0)
     raise ValueError(f"그릴 수 없는 줄: {line[:20]}")
@@ -511,10 +783,23 @@ def main():
         print(lang, "ok", len(frames))
         # 잠자는 화면 (PC 가 멈출 때 보내는 Z| 줄)
         to_screen(render_sleep(MESSAGES_BY_LANG[lang]["wait"])).save(OUT / ("6_잠자기.png" if lang == "ko" else "en_6_sleep.png"))
+        # 장면 화면 (A| 줄): 공룡(dino), 토끼(bunny), 잘자(bye)
+        to_screen(render_scene("dino", "")).save(OUT / ("7_공룡.png" if lang == "ko" else "en_7_dino.png"))
+        to_screen(render_scene("bunny", MESSAGES_BY_LANG[lang]["bunny"])).save(
+            OUT / ("8_토끼.png" if lang == "ko" else "en_8_bunny.png"))
+        to_screen(render_scene("bye", MESSAGES_BY_LANG[lang]["bye"])).save(
+            OUT / ("9_잘자.png" if lang == "ko" else "en_9_bye.png"))
     # 펌웨어 부팅 화면 (두 언어 공통) = 두 줄짜리 잠자는 화면. 움직임은 sleep.gif
     to_screen(render_boot()).save(OUT / "0_boot.png")
     frames = [to_screen(render_sleep("", tick=i), 4) for i in range(40)]
     frames[0].save(OUT / "sleep.gif", save_all=True, append_images=frames[1:], duration=200, loop=0)
+    # 장면 애니메이션 GIF (dino: 왕복 1주기, bunny / bye: 20틱 주기)
+    dino_frames = [to_screen(render_scene("dino", "", tick=t), 4) for t in range(0, DINO_SPAN * 2, 2)]
+    dino_frames[0].save(OUT / "dino.gif", save_all=True, append_images=dino_frames[1:], duration=100, loop=0)
+    bunny_frames = [to_screen(render_scene("bunny", MESSAGES_BY_LANG["en"]["bunny"], tick=i), 4) for i in range(20)]
+    bunny_frames[0].save(OUT / "bunny.gif", save_all=True, append_images=bunny_frames[1:], duration=200, loop=0)
+    bye_frames = [to_screen(render_scene("bye", MESSAGES_BY_LANG["en"]["bye"], tick=i), 4) for i in range(20)]
+    bye_frames[0].save(OUT / "bye.gif", save_all=True, append_images=bye_frames[1:], duration=200, loop=0)
     return 0
 
 

@@ -51,6 +51,9 @@ TEXTS = [
     "탈 버스 없음",
     "오류… 다시 시도 중",
     "알림 시간 아님",
+    # 장면 화면 (A| 줄)
+    "이제 잘 시간이야!",
+    "나도 자러 갈게. 잘 자!",
     " ",
     # 영어 문구 (LANG=en). host/commute.py 의 MESSAGES["en"] / NOTICES["en"] 과 같아야 한다
     "Plenty of time",
@@ -64,6 +67,8 @@ TEXTS = [
     "No bus to catch",
     "Error, retrying...",
     "Off hours",
+    "Time to sleep!",
+    "Me too. Good night!",
 ]
 
 # 영어 모드에선 어떤 문구가 와도 그릴 수 있게 출력 가능한 ASCII(0x20~0x7E)를 전부 넣는다. 약 2.5KB.

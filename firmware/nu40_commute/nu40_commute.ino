@@ -22,6 +22,7 @@
       S|<state>|<arrive_s>|<speed>|<leave_s>|<bottom_left>|<bottom_right>|<msg>   화면 상태 (가장 자주 옴)
       N|<text>        안내 화면 (예: 탈 버스 없음)
       Z|<text>        잠자는 화면 (PC 가 멈출 때. 글자가 비면 한글/영어 두 줄)
+      A|<scene>|<text> 장면 화면 (dino / bunny / bye)
       P|on / P|off    화면 켜기 / 끄기 (ON_AT~OFF_AT 스케줄, 촬영용 지연 시작)
       M|demo / M|live 모드 표시 (LED2 로만 표시, 화면엔 안 그림)
     보드 → PC
@@ -85,6 +86,18 @@ static const int16_t NOTICE_Y      = 26;
 static const int16_t SLEEP_RAIL_Y  = 36;    // 잠자는 화면 도로 줄
 static const int16_t SLEEP_BUS_X   = 44;    // 잠자는 버스 왼쪽 끝 x
 static const int16_t SLEEP_TEXT_Y  = 45;    // 잠자는 화면 한 줄 글자 윗줄
+static const int16_t DINO_GROUND_Y = 44;    // 공룡 화면 땅 줄
+static const int16_t DINO_MIN_X    = 5;     // 공룡 왼쪽 끝 x
+static const int16_t DINO_MAX_X    = 105;   // 공룡 오른쪽 끝 x (폭 18 → 오른쪽 여백 5)
+static const int16_t DINO_SPAN     = DINO_MAX_X - DINO_MIN_X;  // 한쪽 이동 거리 (100틱 = 20초)
+static const int16_t DINO_TEXT_Y   = 49;    // 공룡 화면 아래 글자 윗줄
+static const int16_t BUNNY_GROUND_Y = 56;   // 토끼 화면 땅 줄
+static const int16_t BUNNY_X       = 6;     // 토끼 왼쪽 끝 x
+static const int16_t BUNNY_BX0 = 26, BUNNY_BY0 = 34, BUNNY_BX1 = 125, BUNNY_BY1 = 48;  // 토끼 말풍선
+static const int16_t BUNNY_TEXT_Y  = 36;    // 토끼 말풍선 안 글자 윗줄
+static const int16_t BYE_GROUND_Y  = 38;    // 잘자 화면 땅 줄
+static const int16_t BYE_BUNNY_X   = 48;    // 잠든 토끼 왼쪽 끝 x
+static const int16_t BYE_TEXT_Y    = 46;    // 잘자 화면 아래 글자 윗줄
 // 부팅 화면 (PC 연결 전). 언어 설정은 PC 쪽(.env LANG)에 있어서 보드는 아직 모르므로 두 언어를 함께 보여 준다.
 static const char* BOOT_LINE_KO = "연결 대기 중…";
 static const char* BOOT_LINE_EN = "Waiting for PC...";
@@ -168,15 +181,228 @@ static const uint8_t MOON_BITS[7]         = {                                   
 };
 static const uint8_t STAR_BITS[3]         = { 0b010, 0b111, 0b010 };                             // 작은 별 (3x3)
 
+// 장면 화면 (A| 줄) 스프라이트: 공룡(dino), 토끼(bunny), 잘자(bye)
+static const uint16_t SUN_BITS[9] = {         // 해 (9x9), MSB = 왼쪽
+  0b0000100000000000,
+  0b0100100100000000,
+  0b0001110000000000,
+  0b0010001000000000,
+  0b1100000110000000,
+  0b0010001000000000,
+  0b0001110000000000,
+  0b0100100100000000,
+  0b0000100000000000,
+};
+static const uint16_t CLOUD_BITS[5] = {       // 구름 (12x5), MSB = 왼쪽
+  0b0001111000000000,
+  0b0010000111000000,
+  0b0100000000100000,
+  0b1000000000010000,
+  0b0111111111100000,
+};
+static const uint8_t GRASS_BITS[3] = { 0b10101, 0b01010, 0b00100 };  // 풀포기 (5x3)
+
+static const uint8_t DINO_W = 18, DINO_H = 16;
+static const uint32_t DINO_R_BITS[2][DINO_H] = {
+  { // 다리 프레임 0 (오른쪽 방향)
+    0b00000001111111000000000000000000,
+    0b00000011111111100000000000000000,
+    0b00000111001111110000000000000000,
+    0b00000011001111110000000000000000,
+    0b00000111111111110000000000000000,
+    0b00000011111110000000000000000000,
+    0b00000111111111000000000000000000,
+    0b10001111111100000000000000000000,
+    0b11011111111111000000000000000000,
+    0b11101111111100100000000000000000,
+    0b01111111111110000000000000000000,
+    0b00111111111110000000000000000000,
+    0b00011111111100000000000000000000,
+    0b00001110011100000000000000000000,
+    0b00001100001110000000000000000000,
+    0b00001110000000000000000000000000,
+  },
+  { // 다리 프레임 1 (오른쪽 방향)
+    0b00000001111111000000000000000000,
+    0b00000011111111100000000000000000,
+    0b00000111001111110000000000000000,
+    0b00000011001111110000000000000000,
+    0b00000111111111110000000000000000,
+    0b00000011111110000000000000000000,
+    0b00000111111111000000000000000000,
+    0b10001111111100000000000000000000,
+    0b11011111111111000000000000000000,
+    0b11101111111100100000000000000000,
+    0b01111111111110000000000000000000,
+    0b00111111111110000000000000000000,
+    0b00011111111100000000000000000000,
+    0b00001110011100000000000000000000,
+    0b00001110001100000000000000000000,
+    0b00000000001110000000000000000000,
+  },
+};
+static const uint32_t DINO_L_BITS[2][DINO_H] = {
+  { // 다리 프레임 0 (왼쪽 방향, 좌우 반전)
+    0b00001111111000000000000000000000,
+    0b00011111111100000000000000000000,
+    0b00111111001110000000000000000000,
+    0b00111111001100000000000000000000,
+    0b00111111111110000000000000000000,
+    0b00000111111100000000000000000000,
+    0b00001111111110000000000000000000,
+    0b00000011111111000100000000000000,
+    0b00001111111111101100000000000000,
+    0b00010011111111011100000000000000,
+    0b00000111111111111000000000000000,
+    0b00000111111111110000000000000000,
+    0b00000011111111100000000000000000,
+    0b00000011100111000000000000000000,
+    0b00000111000011000000000000000000,
+    0b00000000000111000000000000000000,
+  },
+  { // 다리 프레임 1 (왼쪽 방향, 좌우 반전)
+    0b00001111111000000000000000000000,
+    0b00011111111100000000000000000000,
+    0b00111111001110000000000000000000,
+    0b00111111001100000000000000000000,
+    0b00111111111110000000000000000000,
+    0b00000111111100000000000000000000,
+    0b00001111111110000000000000000000,
+    0b00000011111111000100000000000000,
+    0b00001111111111101100000000000000,
+    0b00010011111111011100000000000000,
+    0b00000111111111111000000000000000,
+    0b00000111111111110000000000000000,
+    0b00000011111111100000000000000000,
+    0b00000011100111000000000000000000,
+    0b00000011000111000000000000000000,
+    0b00000111000000000000000000000000,
+  },
+};
+
+static const uint8_t BUNNY_W = 18, BUNNY_H = 22;
+static const uint32_t BUNNY_BITS[3][BUNNY_H] = {
+  { // 0: 팔 위로 흔들기
+    0b00000110000110000000000000000000,
+    0b00001001001001000000000000000000,
+    0b00001001001001000000000000000000,
+    0b00001001001001000000000000000000,
+    0b00001001001001000000000000000000,
+    0b00001001001001000000000000000000,
+    0b00000111111110000000000000000000,
+    0b00011000000001100000000000000000,
+    0b00100000000000010000000000000000,
+    0b00100000000000010000000000000000,
+    0b00100100000010010000000000000000,
+    0b00100100000010010000000000000000,
+    0b00100000110000010000000000000000,
+    0b00010000000000100000000000000000,
+    0b00001111111111000000000000000000,
+    0b00001000000001001000000000000000,
+    0b00010000000000110000000000000000,
+    0b00010000000000100000000000000000,
+    0b01110000000000100000000000000000,
+    0b01010000000000100000000000000000,
+    0b00110011111100100000000000000000,
+    0b00001110000111000000000000000000,
+  },
+  { // 1: 팔 아래로
+    0b00000110000110000000000000000000,
+    0b00001001001001000000000000000000,
+    0b00001001001001000000000000000000,
+    0b00001001001001000000000000000000,
+    0b00001001001001000000000000000000,
+    0b00001001001001000000000000000000,
+    0b00000111111110000000000000000000,
+    0b00011000000001100000000000000000,
+    0b00100000000000010000000000000000,
+    0b00100000000000010000000000000000,
+    0b00100100000010010000000000000000,
+    0b00100100000010010000000000000000,
+    0b00100000110000010000000000000000,
+    0b00010000000000100000000000000000,
+    0b00001111111111000000000000000000,
+    0b00001000000001000000000000000000,
+    0b00010000000000100000000000000000,
+    0b00010000000000110000000000000000,
+    0b01110000000000101000000000000000,
+    0b01010000000000100000000000000000,
+    0b00110011111100100000000000000000,
+    0b00001110000111000000000000000000,
+  },
+  { // 2: 귀 쫑긋 + 눈 깜빡
+    0b00000110000011000000000000000000,
+    0b00001001000100100000000000000000,
+    0b00001001000100100000000000000000,
+    0b00001001001001000000000000000000,
+    0b00001001001001000000000000000000,
+    0b00001001001001000000000000000000,
+    0b00000111111110000000000000000000,
+    0b00011000000001100000000000000000,
+    0b00100000000000010000000000000000,
+    0b00100000000000010000000000000000,
+    0b00100000000000010000000000000000,
+    0b00100110000110010000000000000000,
+    0b00100000110000010000000000000000,
+    0b00010000000000100000000000000000,
+    0b00001111111111000000000000000000,
+    0b00001000000001000000000000000000,
+    0b00010000000000100000000000000000,
+    0b00010000000000110000000000000000,
+    0b01110000000000101000000000000000,
+    0b01010000000000100000000000000000,
+    0b00110011111100100000000000000000,
+    0b00001110000111000000000000000000,
+  },
+};
+
+static const uint8_t BYE_BUNNY_W = 28, BYE_BUNNY_H = 14;
+static const uint32_t BYE_BUNNY_BITS[2][BYE_BUNNY_H] = {
+  { // 0: 들숨
+    0b00000000111111000000000000000000,
+    0b00000011000000111000000000000000,
+    0b00000100000000000111100000000000,
+    0b00000011111111100000011000000000,
+    0b00001110000000010000000100000000,
+    0b00010000000000001000000010000000,
+    0b00100000000000001000000010000000,
+    0b00100000000000001011011010000000,
+    0b00100000000000001000100010000000,
+    0b01110000000000000100000101000000,
+    0b10010000000000000011111000100000,
+    0b10010000000000000100000000100000,
+    0b01110011111111111000000001000000,
+    0b00001100000000000111111110000000,
+  },
+  { // 1: 날숨
+    0b00000000000000000000000000000000,
+    0b00000000111111000000000000000000,
+    0b00000011000000111111100000000000,
+    0b00000100000000100000011000000000,
+    0b00000011111111100000000100000000,
+    0b00001110000000001000000010000000,
+    0b00010000000000001000000010000000,
+    0b00100000000000001011011010000000,
+    0b00100000000000001000100010000000,
+    0b01110000000000000100000101000000,
+    0b10010000000000000011111000100000,
+    0b10010000000000000100000000100000,
+    0b01110011111111111000000001000000,
+    0b00001100000000000111111110000000,
+  },
+};
+
 // ─────────────────────────────────────────────────────────────
 // 보드가 기억하는 화면 상태
 // ─────────────────────────────────────────────────────────────
 // MODE_SLEEP = PC 가 없을 때의 잠자는 화면. 켜진 직후(한글/영어 두 줄), Z| 를 받았을 때(그 글자),
-//              PC 가 PC_SILENT_MS 동안 아무것도 안 보냈을 때(두 줄). N| 이 오면 MODE_NOTICE, S| 면 MODE_BOARD.
-enum ScreenMode { MODE_SLEEP, MODE_NOTICE, MODE_BOARD };
+//              PC 가 PC_SILENT_MS 동안 아무것도 안 보냈을 때(두 줄). N| 이 오면 MODE_NOTICE, S| 면 MODE_BOARD, A| 면 MODE_SCENE.
+enum ScreenMode { MODE_SLEEP, MODE_NOTICE, MODE_BOARD, MODE_SCENE };
 
 static ScreenMode mode = MODE_SLEEP;
 static char     sleepText[64] = "";        // 잠자는 화면 글자. 비어 있으면 BOOT_LINE_KO / BOOT_LINE_EN 두 줄
+static int8_t   sceneIdx      = 0;         // 장면 번호: 0 dino, 1 bunny, 2 bye
+static char     sceneText[64] = "";        // 장면 화면 글자 (A| 줄)
 static const uint32_t PC_SILENT_MS = 30000; // PC 는 5초(데모 2초)마다 보낸다. 이만큼 조용하면 PC 가 멈춘 것으로 본다
 static uint32_t lastLineMs = 0;            // PC 가 마지막으로 줄을 보낸 시각
 static int8_t   stateIdx = 0;              // 0 relax, 1 pack, 2 go, 3 missed
@@ -348,6 +574,20 @@ void handleLine(char* line) {
     return;
   }
 
+  if (cmd == 'A') {
+    // A|<scene>|<text>
+    char* f[2] = { body, (char*)"" };
+    splitFields(body, f, 2);
+    int8_t idx = sceneIndex(f[0]);
+    if (idx < 0) { Serial.println("ERR|Unknown scene."); return; }
+    sceneIdx = idx;
+    copyText(sceneText, f[1], sizeof(sceneText));
+    mode = MODE_SCENE;
+    digitalWrite(LED_PINS[LED_GO], LOW);
+    if (displayOk && powerOn) drawScreen();
+    return;
+  }
+
   if (cmd == 'P') {
     setPower(strcmp(body, "on") == 0);
     return;
@@ -358,7 +598,7 @@ void handleLine(char* line) {
     return;
   }
 
-  Serial.println("ERR|Unknown command. Use S|, N|, Z|, P|, M|");
+  Serial.println("ERR|Unknown command. Use S|, N|, Z|, A|, P|, M|");
 }
 
 int8_t stateIndex(const char* s) {
@@ -366,6 +606,13 @@ int8_t stateIndex(const char* s) {
   if (strcmp(s, "pack")   == 0) return 1;
   if (strcmp(s, "go")     == 0) return 2;
   if (strcmp(s, "missed") == 0) return 3;
+  return -1;
+}
+
+int8_t sceneIndex(const char* s) {
+  if (strcmp(s, "dino")  == 0) return 0;
+  if (strcmp(s, "bunny") == 0) return 1;
+  if (strcmp(s, "bye")   == 0) return 2;
   return -1;
 }
 
@@ -565,6 +812,70 @@ void drawSleep() {
   }
 }
 
+// 공룡 장면 (A|dino|<text>) — preview.py render_scene("dino") 와 같다
+void drawDino() {
+  drawBits16(SUN_BITS, 9, 9, 12, 3);
+  drawBits16(CLOUD_BITS, 12, 5, 48, 6);
+  drawBits16(CLOUD_BITS, 12, 5, 96, 4);
+  drawBits8(GRASS_BITS, 5, 3, 24, DINO_GROUND_Y - 3);
+  drawBits8(GRASS_BITS, 5, 3, 94, DINO_GROUND_Y - 3);
+  display.drawFastHLine(0, DINO_GROUND_Y, 128, SSD1306_WHITE);
+  for (int16_t x = 3; x < 128; x += 12) {
+    display.drawPixel(x, DINO_GROUND_Y + 1, SSD1306_WHITE);
+    if (x + 5 < 128) display.drawPixel(x + 5, DINO_GROUND_Y + 2, SSD1306_WHITE);
+  }
+
+  uint16_t phase = tick % (uint16_t)(DINO_SPAN * 2);
+  bool facingRight = (phase < (uint16_t)DINO_SPAN);
+  int16_t dx = facingRight ? (DINO_MIN_X + (int16_t)phase)
+                           : (DINO_MAX_X - (int16_t)(phase - (uint16_t)DINO_SPAN));
+  uint8_t leg = (tick / 2) % 2;
+  drawBits32(facingRight ? DINO_R_BITS[leg] : DINO_L_BITS[leg], DINO_W, DINO_H, dx, DINO_GROUND_Y - DINO_H);
+
+  if (sceneText[0] != '\0') {
+    drawText((SCREEN_WIDTH - textWidth(sceneText)) / 2, DINO_TEXT_Y, sceneText);
+  }
+}
+
+// 토끼 장면 (A|bunny|<text>) — preview.py render_scene("bunny") 와 같다
+void drawBunny() {
+  drawBits8(MOON_BITS, 7, 7, 12, 5);
+  drawBits8(STAR_BITS, 3, 3, 36, 8);
+  drawBits8(STAR_BITS, 3, 3, 76, 4);
+  drawBits8(STAR_BITS, 3, 3, 110, 7);
+
+  display.drawFastHLine(0, BUNNY_GROUND_Y, 128, SSD1306_WHITE);
+  for (int16_t x = 2; x < 128; x += 10) {
+    display.drawPixel(x, BUNNY_GROUND_Y + 1, SSD1306_WHITE);
+  }
+  uint8_t frame = (tick % 20 >= 18) ? 2 : ((tick / 3) % 2);
+  drawBits32(BUNNY_BITS[frame], BUNNY_W, BUNNY_H, BUNNY_X, BUNNY_GROUND_Y - BUNNY_H);
+
+  drawBubble(BUNNY_BX0, BUNNY_BY0, BUNNY_BX1, BUNNY_BY1, true, 0);
+  drawText(BUNNY_BX0 + (BUNNY_BX1 - BUNNY_BX0 + 1 - textWidth(sceneText)) / 2, BUNNY_TEXT_Y, sceneText);
+}
+
+// 잘자 장면 (A|bye|<text>) — preview.py render_scene("bye") 와 같다
+void drawBye() {
+  int16_t step = (tick % 20) / 2;
+  drawBits8(MOON_BITS, 7, 7, 14, 4);
+  drawBits8(STAR_BITS, 3, 3, 34, 7);
+  drawBits8(STAR_BITS, 3, 3, 106, 6);
+  drawBits8(Z_SMALL_BITS, 4, 4, 70 + step / 2, 18 - step);
+  drawBits8(Z_BIG_BITS, 5, 5, 76 + step / 2, 9 - step);
+
+  display.drawFastHLine(0, BYE_GROUND_Y, 128, SSD1306_WHITE);
+  for (int16_t x = 2; x < 128; x += 10) {
+    display.drawPixel(x, BYE_GROUND_Y + 1, SSD1306_WHITE);
+  }
+  uint8_t breath = (tick / 5) % 2;
+  drawBits32(BYE_BUNNY_BITS[breath], BYE_BUNNY_W, BYE_BUNNY_H, BYE_BUNNY_X, BYE_GROUND_Y - BYE_BUNNY_H);
+
+  if (sceneText[0] != '\0') {
+    drawText((SCREEN_WIDTH - textWidth(sceneText)) / 2, BYE_TEXT_Y, sceneText);
+  }
+}
+
 void drawScreen() {
   display.clearDisplay();
 
@@ -575,6 +886,13 @@ void drawScreen() {
   }
   if (mode == MODE_NOTICE) {               // preview.py render_notice() 와 같다
     drawText((SCREEN_WIDTH - textWidth(notice)) / 2, NOTICE_Y, notice);
+    display.display();
+    return;
+  }
+  if (mode == MODE_SCENE) {                // preview.py render_scene() 과 같다
+    if (sceneIdx == 0)      drawDino();
+    else if (sceneIdx == 1) drawBunny();
+    else                    drawBye();
     display.display();
     return;
   }
