@@ -101,6 +101,7 @@ NOTICES = {
         "off_hours": "알림 시간 아님",
         "bed": "이제 잘 시간이야!",
         "bye": "나도 자러 갈게. 잘 자!",
+        "gohard": "Go hard!",
     },
     "en": {
         "wait": "Waiting for PC...",
@@ -109,6 +110,7 @@ NOTICES = {
         "off_hours": "Off hours",
         "bed": "Time to sleep!",
         "bye": "Me too. Good night!",
+        "gohard": "Go hard!",
     },
 }
 
@@ -225,6 +227,12 @@ class Config:
         self.dino_until = parse_hhmm(merged.get("DINO_UNTIL", ""), "DINO_UNTIL")     # OFF_AT 부터 이때까지 공룡
         self.bed_at = parse_hhmm(merged.get("BED_AT", ""), "BED_AT")                 # 이때부터 토끼가 자라고 한다
         self.bed_off_at = parse_hhmm(merged.get("BED_OFF_AT", "00:00"), "BED_OFF_AT")  # 토끼도 자러 가고 화면 끔
+        # 위 어느 시간대도 아닐 때의 장면. 비우면 화면을 끈다, gohard 면 토끼가 "Go hard!"
+        self.idle_scene = (merged.get("IDLE_SCENE") or "").strip().lower() or None
+        if self.idle_scene not in (None, "gohard"):
+            log(tr(f"IDLE_SCENE='{self.idle_scene}' 는 gohard 가 아니라 무시합니다.",
+                   f"IDLE_SCENE='{self.idle_scene}' is not gohard — ignored."))
+            self.idle_scene = None
         self.demo_speed = max(1, self._int(merged.get("DEMO_SPEED"), 8, "DEMO_SPEED"))
 
     @staticmethod
@@ -266,7 +274,8 @@ class Config:
         return NOTICES[self.lang][key]
 
     def scene_text(self, scene):
-        return {"dino": "", "bunny": self.notice("bed"), "bye": self.notice("bye")}[scene]
+        return {"dino": "", "bunny": self.notice("bed"), "bye": self.notice("bye"),
+                "gohard": self.notice("gohard")}[scene]
 
     def off_at_on(self, day):
         """그날의 끄는 시각 (OFF_AT_ONCE 가 그날이면 그 값)."""
@@ -655,12 +664,12 @@ def in_window(cfg, now):
     return _between(cfg.on_at, off_at, now.hour * 60 + now.minute)
 
 
-SCENES = ("dino", "bunny", "bye")
-BYE_S = 60                    # BED_OFF_AT 에 토끼가 "나도 잘게" 하고 있는 시간. 그 뒤 화면을 끈다
+SCENES = ("dino", "bunny", "bye", "gohard")
+BYE_S = 60                    # BED_OFF_AT 에 토끼가 "나도 잘게" 하고 있는 시간. 그 뒤 IDLE_SCENE (없으면 화면 끔)
 
 
 def scene_at(cfg, now):
-    """지금 화면에 무엇을 보일까: 'bus', 'dino', 'bunny', 'bye', 없으면 None (화면 끔)."""
+    """지금 화면에 무엇을 보일까: 'bus', 'dino', 'bunny', 'bye', 그 밖엔 IDLE_SCENE, 없으면 None (화면 끔)."""
     if in_window(cfg, now):
         return "bus"
     cur = now.hour * 60 + now.minute
@@ -673,7 +682,7 @@ def scene_at(cfg, now):
     off_at = cfg.off_at_on(now.date())
     if cfg.dino_until is not None and off_at is not None and off_at <= cur < cfg.dino_until:
         return "dino"
-    return None
+    return cfg.idle_scene
 
 
 # ─────────────────────────────────────────────────────────────
@@ -1034,8 +1043,10 @@ def main():
         if cfg.dino_until is not None:
             log(tr(f"공룡: 버스 시간 뒤 ~ {hm(cfg.dino_until)}", f"Dinosaur: after the bus window ~ {hm(cfg.dino_until)}"))
         if cfg.bed_at is not None and cfg.bed_off_at is not None:
-            log(tr(f"토끼: {hm(cfg.bed_at)} ~ {hm(cfg.bed_off_at)}, 그 뒤 화면 끔",
-                   f"Bunny: {hm(cfg.bed_at)} ~ {hm(cfg.bed_off_at)}, then screen off"))
+            log(tr(f"토끼: {hm(cfg.bed_at)} ~ {hm(cfg.bed_off_at)}, 그 뒤 잘 자 1분",
+                   f"Bunny: {hm(cfg.bed_at)} ~ {hm(cfg.bed_off_at)}, then good night for 1 min"))
+        log(tr("그 밖의 시간: 토끼가 Go hard!" if cfg.idle_scene else "그 밖의 시간: 화면 끔",
+               "Other times: bunny says Go hard!" if cfg.idle_scene else "Other times: screen off"))
     elif not demo:
         log(tr(f"스케줄 무시, 바로 켬. 버스 정보는 {cfg.poll_s}초마다",
                f"Ignoring the schedule, screen on now. Bus poll every {cfg.poll_s}s"))
@@ -1148,7 +1159,7 @@ def main():
                 time.sleep(1.0)
                 continue
 
-            # 3) 버스 시간대 밖의 장면 (공룡, 토끼). 보드가 혼자 움직이고, API 는 부르지 않는다
+            # 3) 버스 시간대 밖의 장면 (공룡, 토끼, Go hard). 보드가 혼자 움직이고, API 는 부르지 않는다
             if scene in SCENES:
                 line = f"A|{scene}|{cfg.scene_text(scene)}"
                 if line != last_scene or now_real - last_send >= keepalive:
