@@ -297,7 +297,7 @@ python3 -m venv .venv
 | `ON_AT` / `OFF_AT` | `06:30` / `09:30` | 화면이 켜지는 시간대. 이 밖에서는 화면을 끄고 API도 부르지 않습니다. 둘 다 비우면 항상 켭니다 |
 | `OFF_AT_ONCE` | 비움 | 하루만 늦게 끄기. 예: `2026-10-29 18:00` (그날만 `OFF_AT` 대신) |
 | `DINO_UNTIL` | 비움 | 예: `13:00`. 버스 시간대가 끝난 뒤 이때까지 작은 공룡이 왔다 갔다 합니다 |
-| `BED_AT` / `BED_OFF_AT` | 비움 / `00:00` | 예: `22:00`. 토끼가 자라고 하고, `BED_OFF_AT`에 "Me too. Good night!" 하고 1분 뒤 화면을 끕니다 |
+| `BED_AT` / `BED_OFF_AT` | 비움 / `00:00` | 예: `22:00`. 토끼가 자라고 하고, `BED_OFF_AT`에 "Me too. Good night!" 하고 1분 뒤 화면을 끕니다 (`IDLE_SCENE`이 있으면 그 장면으로 바뀝니다) |
 | `IDLE_SCENE` | 비움 | `gohard`로 두면 버스·공룡·토끼 시간이 아닐 때 토끼가 "Go hard!" 합니다. 비우면 그 시간엔 화면을 끕니다 |
 | `LANG` | `en` | 화면·로그 언어 (`en` / `ko`) |
 | `SERIAL_PORT` | 자동 | 보드 포트. 예: `/dev/cu.usbmodem1101`, `COM3` |
