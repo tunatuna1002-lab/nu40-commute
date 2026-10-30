@@ -65,6 +65,10 @@ BUNNY_TEXT_Y = 36                    # 토끼 말풍선 안 글자 윗줄
 BYE_GROUND_Y = 38                    # 잘자 화면 땅 줄
 BYE_BUNNY_X = 48                     # 잠든 토끼 왼쪽 끝 x
 BYE_TEXT_Y = 46                      # 잘자 화면 아래 글자 윗줄
+GOHARD_X = 3                         # 응원 토끼 기준 왼쪽 끝 x
+GOHARD_Y = 8                         # 응원 토끼 기준 윗줄 y
+GOHARD_BUBBLE = (40, 20, 113, 34)    # 응원 말풍선 (x0, y0, x1, y1)
+GOHARD_TEXT_Y = 22                   # 응원 말풍선 안 글자 윗줄
 
 # ── 픽셀 그림 (# = 켜진 픽셀) ─────────────────────────────
 BUS = """
@@ -123,6 +127,13 @@ STAR = [                             # 작은 별 (3x3)
     ".#.",
     "###",
     ".#.",
+]
+SPARKLE = [                          # 큰 반짝이 (5x5)
+    "..#..",
+    "..#..",
+    "#####",
+    "..#..",
+    "..#..",
 ]
 
 FACES = {
@@ -193,7 +204,7 @@ STOP_SIGN = [
 ]
 FLAG = ["###", "##.", "#.."]
 
-# 장면 화면 (A| 줄) 스프라이트: 공룡(dino), 토끼(bunny), 잘자(bye)
+# 장면 화면 (A| 줄) 스프라이트: 공룡(dino), 토끼(bunny), 잘자(bye), 응원(gohard)
 SUN = [                              # 해 (9x9)
     "....#....",
     ".#..#..#.",
@@ -373,6 +384,116 @@ BYE_BUNNY = [                        # 베개 베고 잠든 토끼 (28x14, 숨�
 BYE_BUNNY_W = len(BYE_BUNNY[0][0])   # 28
 BYE_BUNNY_H = len(BYE_BUNNY[0])      # 14
 
+GOHARD_BUNNY = [                     # 응원하는 큰 토끼 얼굴 (32x33, 주먹 흔들기 + 귀 쫑긋/눈웃음 3프레임)
+    [
+        "......####......####............",
+        ".....#....#....#....#...........",
+        ".....#....#....#....#...........",
+        ".....#....#....#....#...........",
+        ".....#....#....#....#...........",
+        ".....#....#....#....#...........",
+        ".....#....#....#....#...........",
+        ".....#....#....#....#...........",
+        ".....#....#....#....#...........",
+        ".....#....#....#....#...........",
+        ".....#....#....#....#...........",
+        ".....#....#....#....#...........",
+        ".....#....#....#....#...........",
+        "......################..........",
+        "....##................##........",
+        "...#....................#.......",
+        "..#......................#......",
+        ".#........................#.....",
+        ".#........................#.....",
+        ".#....##............##....#..###",
+        ".#....##............##....#.#..#",
+        ".#....##............##....#.#.##",
+        ".#....##............##....#.#..#",
+        ".#........................#..###",
+        ".#..##.......##.......##..#...#.",
+        ".#........................#...#.",
+        ".#.........######.........#..#..",
+        ".#.........#....#.........###...",
+        ".#..........####..........#.....",
+        "..#......................#......",
+        "...#....................#.......",
+        "....##................##........",
+        "......################..........",
+    ],
+    [
+        "......####......####............",
+        ".....#....#....#....#...........",
+        ".....#....#....#....#...........",
+        ".....#....#....#....#...........",
+        ".....#....#....#....#...........",
+        ".....#....#....#....#...........",
+        ".....#....#....#....#...........",
+        ".....#....#....#....#...........",
+        ".....#....#....#....#...........",
+        ".....#....#....#....#...........",
+        ".....#....#....#....#...........",
+        ".....#....#....#....#...........",
+        ".....#....#....#....#...........",
+        "......################..........",
+        "....##................##........",
+        "...#....................#.......",
+        "..#......................#......",
+        ".#........................#.....",
+        ".#........................#.....",
+        ".#....##............##....#.....",
+        ".#....##............##....#.....",
+        ".#....##............##....#.....",
+        ".#....##............##....#..###",
+        ".#........................#.#..#",
+        ".#..##.......##.......##..#.#.##",
+        ".#........................#.#..#",
+        ".#.........#....#.........#..###",
+        ".#..........####..........#...#.",
+        ".#........................#..#..",
+        "..#......................####...",
+        "...#....................#.......",
+        "....##................##........",
+        "......################..........",
+    ],
+    [
+        "......####.......####...........",
+        ".....#....#.....#....#..........",
+        ".....#....#.....#....#..........",
+        ".....#....#.....#....#..........",
+        ".....#....#.....#....#..........",
+        ".....#....#....#....#...........",
+        ".....#....#....#....#...........",
+        ".....#....#....#....#...........",
+        ".....#....#....#....#...........",
+        ".....#....#....#....#...........",
+        ".....#....#....#....#...........",
+        ".....#....#....#....#...........",
+        ".....#....#....#....#...........",
+        "......################..........",
+        "....##................##........",
+        "...#....................#.......",
+        "..#......................#......",
+        ".#........................#.....",
+        ".#........................#..###",
+        ".#........................#.#..#",
+        ".#....##............##....#.#.##",
+        ".#...#..#..........#..#...#.#..#",
+        ".#........................#..###",
+        ".#........................#...#.",
+        ".#..##.......##.......##..#...#.",
+        ".#........................#..#..",
+        ".#.........######.........###...",
+        ".#.........#....#.........#.....",
+        ".#..........####..........#.....",
+        "..#......................#......",
+        "...#....................#.......",
+        "....##................##........",
+        "......################..........",
+    ],
+]
+GOHARD_W = len(GOHARD_BUNNY[0][0])   # 32
+GOHARD_H = len(GOHARD_BUNNY[0])      # 33
+
 # 화면 문구 (host/commute.py 의 MESSAGES 와 같다). LANG=ko / en
 MESSAGES_BY_LANG = {
     "ko": {
@@ -386,6 +507,7 @@ MESSAGES_BY_LANG = {
         "wait": "연결 대기 중…",
         "bunny": "이제 잘 시간이야!",
         "bye": "나도 자러 갈게. 잘 자!",
+        "gohard": "Go hard!",
     },
     "en": {
         "relax": "Plenty of time",
@@ -398,6 +520,7 @@ MESSAGES_BY_LANG = {
         "wait": "Waiting for PC...",
         "bunny": "Time to sleep!",
         "bye": "Me too. Good night!",
+        "gohard": "Go hard!",
     },
 }
 MESSAGES = MESSAGES_BY_LANG["ko"]          # 기본(한글) 시안
@@ -570,8 +693,8 @@ def render_boot():
 
 
 def render_scene(scene, text="", tick=0):
-    """장면 화면 (A| 줄). 펌웨어 drawDino() / drawBunny() / drawBye() 와 픽셀 단위로 같다."""
-    if scene not in ("dino", "bunny", "bye"):
+    """장면 화면 (A| 줄). 펌웨어 drawDino() / drawBunny() / drawBye() / drawGoHard() 와 픽셀 단위로 같다."""
+    if scene not in ("dino", "bunny", "bye", "gohard"):
         raise ValueError(f"모르는 장면: {scene}")
     img = Image.new("1", (W, H), 0)
     d = ImageDraw.Draw(img)
@@ -620,22 +743,50 @@ def render_scene(scene, text="", tick=0):
         d.text((x0 + (x1 - x0 + 1 - text_w(text)) // 2, BUNNY_TEXT_Y), text, font=GALMURI, fill=1)
         return img
 
-    # scene == "bye": 밤하늘 + 떠오르는 z/Z + 베개 베고 잠든 토끼 + 아래 가운데 문구
-    step = (tick % 20) // 2
-    sprite(d, MOON, 14, 4)
-    sprite(d, STAR, 34, 7)
-    sprite(d, STAR, 106, 6)
-    sprite(d, Z_SMALL, 70 + step // 2, 18 - step)
-    sprite(d, Z_BIG, 76 + step // 2, 9 - step)
+    if scene == "bye":
+        # 밤하늘 + 떠오르는 z/Z + 베개 베고 잠든 토끼 + 아래 가운데 문구
+        step = (tick % 20) // 2
+        sprite(d, MOON, 14, 4)
+        sprite(d, STAR, 34, 7)
+        sprite(d, STAR, 106, 6)
+        sprite(d, Z_SMALL, 70 + step // 2, 18 - step)
+        sprite(d, Z_BIG, 76 + step // 2, 9 - step)
 
-    d.line((0, BYE_GROUND_Y, 127, BYE_GROUND_Y), fill=1)
-    for x in range(2, 128, 10):
-        d.point((x, BYE_GROUND_Y + 1), 1)
-    breath = (tick // 5) % 2
-    sprite(d, BYE_BUNNY[breath], BYE_BUNNY_X, BYE_GROUND_Y - BYE_BUNNY_H)
+        d.line((0, BYE_GROUND_Y, 127, BYE_GROUND_Y), fill=1)
+        for x in range(2, 128, 10):
+            d.point((x, BYE_GROUND_Y + 1), 1)
+        breath = (tick // 5) % 2
+        sprite(d, BYE_BUNNY[breath], BYE_BUNNY_X, BYE_GROUND_Y - BYE_BUNNY_H)
 
-    if text:
-        d.text(((W - text_w(text)) // 2, BYE_TEXT_Y), text, font=GALMURI, fill=1)
+        if text:
+            d.text(((W - text_w(text)) // 2, BYE_TEXT_Y), text, font=GALMURI, fill=1)
+        return img
+
+    # scene == "gohard": 큰 토끼 얼굴이 주먹을 불끈 쥐고 응원 + 번인 방지 천천히 이동
+    px = (tick >> 2) & 15
+    py = (tick >> 5) & 31
+    dx = px if px <= 8 else (16 - px)
+    dy = py if py <= 16 else (32 - py)
+
+    frame = 2 if (tick & 15) >= 14 else ((tick >> 1) & 1)
+    hop = -1 if frame != 1 else 0
+    sprite(d, GOHARD_BUNNY[frame], GOHARD_X + dx, GOHARD_Y + dy + hop)
+
+    if frame != 1:
+        sprite(d, SPARKLE, 1 + dx, 6 + dy)
+        sprite(d, STAR, 35 + dx, 9 + dy)
+    else:
+        sprite(d, STAR, 2 + dx, 7 + dy)
+        sprite(d, SPARKLE, 34 + dx, 8 + dy)
+    if frame == 2:
+        sprite(d, SPARKLE, 114 + dx, 11 + dy)
+    else:
+        sprite(d, STAR, 115 + dx, 12 + dy)
+
+    x0, y0, x1, y1 = GOHARD_BUBBLE
+    bx0, by0, bx1, by1 = x0 + dx, y0 + dy, x1 + dx, y1 + dy
+    bubble(d, bx0, by0, bx1, by1, "left")
+    d.text((bx0 + (bx1 - bx0 + 1 - text_w(text)) // 2, GOHARD_TEXT_Y + dy), text, font=GALMURI, fill=1)
     return img
 
 
@@ -644,7 +795,7 @@ def render_line(line, tick=0):
       S|<state>|<arrive_s>|<speed>|<leave_s>|<bottom_left>|<bottom_right>|<msg>
       N|<text>      안내 화면
       Z|<text>      잠자는 화면 (PC 가 멈출 때)
-      A|<scene>|<text> 장면 화면 (dino / bunny / bye)
+      A|<scene>|<text> 장면 화면 (dino / bunny / bye / gohard)
       P|off         화면 꺼짐 (검은 화면)
     """
     line = line.strip()
@@ -783,23 +934,27 @@ def main():
         print(lang, "ok", len(frames))
         # 잠자는 화면 (PC 가 멈출 때 보내는 Z| 줄)
         to_screen(render_sleep(MESSAGES_BY_LANG[lang]["wait"])).save(OUT / ("6_잠자기.png" if lang == "ko" else "en_6_sleep.png"))
-        # 장면 화면 (A| 줄): 공룡(dino), 토끼(bunny), 잘자(bye)
+        # 장면 화면 (A| 줄): 공룡(dino), 토끼(bunny), 잘자(bye), 응원(gohard)
         to_screen(render_scene("dino", "")).save(OUT / ("7_공룡.png" if lang == "ko" else "en_7_dino.png"))
         to_screen(render_scene("bunny", MESSAGES_BY_LANG[lang]["bunny"])).save(
             OUT / ("8_토끼.png" if lang == "ko" else "en_8_bunny.png"))
         to_screen(render_scene("bye", MESSAGES_BY_LANG[lang]["bye"])).save(
             OUT / ("9_잘자.png" if lang == "ko" else "en_9_bye.png"))
+        to_screen(render_scene("gohard", MESSAGES_BY_LANG[lang]["gohard"])).save(
+            OUT / ("10_gohard.png" if lang == "ko" else "en_10_gohard.png"))
     # 펌웨어 부팅 화면 (두 언어 공통) = 두 줄짜리 잠자는 화면. 움직임은 sleep.gif
     to_screen(render_boot()).save(OUT / "0_boot.png")
     frames = [to_screen(render_sleep("", tick=i), 4) for i in range(40)]
     frames[0].save(OUT / "sleep.gif", save_all=True, append_images=frames[1:], duration=200, loop=0)
-    # 장면 애니메이션 GIF (dino: 왕복 1주기, bunny / bye: 20틱 주기)
+    # 장면 애니메이션 GIF (dino: 왕복 1주기, bunny / bye: 20틱 주기, gohard: 응원 주기 + 번인 이동)
     dino_frames = [to_screen(render_scene("dino", "", tick=t), 4) for t in range(0, DINO_SPAN * 2, 2)]
     dino_frames[0].save(OUT / "dino.gif", save_all=True, append_images=dino_frames[1:], duration=100, loop=0)
     bunny_frames = [to_screen(render_scene("bunny", MESSAGES_BY_LANG["en"]["bunny"], tick=i), 4) for i in range(20)]
     bunny_frames[0].save(OUT / "bunny.gif", save_all=True, append_images=bunny_frames[1:], duration=200, loop=0)
     bye_frames = [to_screen(render_scene("bye", MESSAGES_BY_LANG["en"]["bye"], tick=i), 4) for i in range(20)]
     bye_frames[0].save(OUT / "bye.gif", save_all=True, append_images=bye_frames[1:], duration=200, loop=0)
+    gohard_frames = [to_screen(render_scene("gohard", MESSAGES_BY_LANG["en"]["gohard"], tick=i), 4) for i in range(40)]
+    gohard_frames[0].save(OUT / "gohard.gif", save_all=True, append_images=gohard_frames[1:], duration=200, loop=0)
     return 0
 
 
