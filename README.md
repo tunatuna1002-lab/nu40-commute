@@ -58,6 +58,29 @@ PC의 파이썬 프로그램이 경기도 버스 도착정보를 받아 **지금
 - **버스 위치:** 16분 전에 왼쪽 끝에서 출발해 도착 시각에 오른쪽 정류장에 닿습니다. 깃발은 나가야 하는 시점입니다.
 - **잠자는 화면:** PC 프로그램이 멈추거나 30초 넘게 아무것도 보내지 않으면 잠자는 버스 화면으로 바뀝니다.
 
+### 버스 시간 밖의 장면 (선택)
+
+버스 시간대(`ON_AT`~`OFF_AT`)가 아닐 때 화면을 끄지 않고 장면을 보일 수 있습니다. 장면은 API를 부르지 않습니다.
+
+| 공룡 | 토끼: 잘 시간 | 응원 | 잠든 토끼 |
+|:---:|:---:|:---:|:---:|
+| ![공룡](tools/preview/dino.gif) | ![토끼](tools/preview/bunny.gif) | ![Go hard](tools/preview/gohard.gif) | ![잠든 토끼](tools/preview/bye.gif) |
+| `DINO_UNTIL` | `BED_AT` | `IDLE_SCENE=gohard` | `BED_OFF_AT`, `NIGHT_SCENE=sleep` |
+
+예를 들어 `ON_AT=06:30`, `OFF_AT=09:30`, `DINO_UNTIL=13:00`, `BED_AT=22:00`, `IDLE_SCENE=gohard`, `NIGHT_SCENE=sleep`이면 하루가 이렇게 지나갑니다.
+
+| 시간 | 화면 |
+|---|---|
+| 06:30~09:30 | 버스 |
+| 09:30~13:00 | 공룡이 왔다 갔다 |
+| 13:00~22:00 | 토끼가 "Go hard!" |
+| 22:00~00:00 | 토끼가 "Time to sleep!" |
+| 00:00~00:01 | 잠든 토끼가 "Me too. Good night!" |
+| 00:01~06:30 | 잠든 토끼. 맥을 쓰는 중이면 토끼가 "Still up? Go to bed!" |
+
+- 오래 켜 두는 응원 화면과 잠든 토끼 화면은 OLED 번인을 막으려고 그림 전체가 몇 픽셀씩 천천히 움직입니다.
+- "맥을 쓰는 중"은 키보드나 마우스를 2분 안에 만졌다는 뜻입니다. 맥에서만 알아챕니다.
+
 ---
 
 ## 2. 빠른 시작: 세 가지만 넣으면 됩니다
@@ -194,8 +217,9 @@ README.md와 host/config.example.env를 읽을 수 있으면 먼저 읽어.
 5. 보드
  - NU40 DK에 SSD1306 OLED 연결: SDA=P0.26, SCL=P0.27,
    VCC=3V3 (5V 금지), GND=GND.
- - 가장 쉬운 굽기: 보드 RESET을 두 번 눌러 NRF52BOOT 드라이브가
+ - 가장 쉬운 굽기: 보드 RESET(S5)을 두 번 빠르게 눌러 NRF52BOOT 드라이브가
    뜨면 build/nu40_commute/nu40_commute.uf2를 거기에 복사.
+   macOS가 "액세서리 연결 허용"을 물으면 허용해야 드라이브가 뜬다.
  - 잠자는 버스 화면과 "Waiting for PC..."가 보이면 성공.
 
 6. 확인
@@ -268,11 +292,15 @@ python3 -m venv .venv
 
 | 방법 | 순서 |
 |---|---|
-| **A. 파일 복사** (프로그램 불필요) | 보드의 RESET을 두 번 누름 → `NRF52BOOT` 드라이브가 뜸 → `build/nu40_commute/nu40_commute.uf2`를 그 드라이브에 복사 |
+| **A. 파일 복사** (프로그램 불필요) | 보드의 RESET을 두 번 빠르게 누름 → `NRF52BOOT` 드라이브가 뜸 → `build/nu40_commute/nu40_commute.uf2`를 그 드라이브에 복사 → 보드가 저절로 다시 켜짐 |
 | B. 아두이노 IDE 2.x | 보드 매니저에서 **NUBoards nRF52 by NUCODE** 설치 → **NU40DK nRF52840** 선택 → 라이브러리 관리에서 **Adafruit SSD1306** 설치(Install all) → `firmware/nu40_commute/nu40_commute.ino`를 폴더째로 열고 업로드 |
 | C. arduino-cli | `arduino-cli compile --fqbn nucode:nrf52:nu40dk firmware/nu40_commute` 뒤 `arduino-cli upload -p /dev/cu.usbmodem1101 --fqbn nucode:nrf52:nu40dk firmware/nu40_commute` |
 
 잠자는 버스 아래에 `연결 대기 중… / Waiting for PC...`가 뜨면 성공입니다.
+
+- **RESET 버튼:** 보드의 **S5**(`RESET P0.18`)입니다. 10핀 디버그 커넥터와 은색 모듈 사이에 있습니다.
+- **macOS:** 두 번 누른 뒤 "액세서리 연결을 허용하겠습니까?" 창이 뜨면 **허용**을 누르세요. 허용하기 전에는 드라이브가 뜨지 않습니다.
+- **방법 C의 upload가 실패하면** 방법 A로 구우세요. 자동 시작이 켜져 있어도 방법 A는 그대로 됩니다.
 
 ---
 
@@ -297,9 +325,9 @@ python3 -m venv .venv
 | `ON_AT` / `OFF_AT` | `06:30` / `09:30` | 화면이 켜지는 시간대. 이 밖에서는 화면을 끄고 API도 부르지 않습니다. 둘 다 비우면 항상 켭니다 |
 | `OFF_AT_ONCE` | 비움 | 하루만 늦게 끄기. 예: `2026-10-29 18:00` (그날만 `OFF_AT` 대신) |
 | `DINO_UNTIL` | 비움 | 예: `13:00`. 버스 시간대가 끝난 뒤 이때까지 작은 공룡이 왔다 갔다 합니다 |
-| `BED_AT` / `BED_OFF_AT` | 비움 / `00:00` | 예: `22:00`. 토끼가 자라고 하고, `BED_OFF_AT`에 "Me too. Good night!" 하고 1분 뒤 화면을 끕니다 (`IDLE_SCENE`이 있으면 그 장면으로 바뀝니다) |
-| `IDLE_SCENE` | 비움 | `gohard`로 두면 버스·공룡·토끼 시간이 아닐 때 토끼가 "Go hard!" 합니다. 비우면 그 시간엔 화면을 끕니다 |
-| `NIGHT_SCENE` | 비움 | `sleep`으로 두면 잘 자 1분 뒤부터 `ON_AT`까지 잠든 토끼를 보입니다. 그동안 맥 키보드·마우스를 2분 안에 만졌으면 토끼가 "Still up? Go to bed!" 합니다 |
+| `BED_AT` / `BED_OFF_AT` | 비움 / `00:00` | 예: `22:00`. 토끼가 자라고 하고, `BED_OFF_AT`에 "Me too. Good night!" 하고 1분 뒤 화면을 끕니다 (`NIGHT_SCENE`이나 `IDLE_SCENE`이 있으면 그 장면으로 바뀝니다) |
+| `IDLE_SCENE` | 비움 | `gohard`로 두면 버스·공룡·토끼·밤 시간이 아닐 때 토끼가 "Go hard!" 합니다. 비우면 그 시간엔 화면을 끕니다 |
+| `NIGHT_SCENE` | 비움 | `sleep`으로 두면 잘 자 1분 뒤부터 `ON_AT`까지 잠든 토끼를 보입니다. 그동안 맥 키보드·마우스를 2분 안에 만졌으면 토끼가 "Still up? Go to bed!" 합니다. `BED_AT`과 `ON_AT`이 있어야 동작합니다 |
 | `LANG` | `en` | 화면·로그 언어 (`en` / `ko`) |
 | `SERIAL_PORT` | 자동 | 보드 포트. 예: `/dev/cu.usbmodem1101`, `COM3` |
 | `BUS_POLL_SECONDS` | `60` | 도착정보 호출 간격(초, 최소 30) |
@@ -376,6 +404,8 @@ host/autostart_mac.sh uninstall   # 자동 시작 끄기
 | 아래 줄 노선 이름에 빈칸 | 노선 이름의 한글이 보드 글꼴에 없음 (로그에 경고). [글꼴](#글꼴) 참고 |
 | 아래 줄이나 깃발이 이상함 | 펌웨어가 예전 버전. 다시 굽기 |
 | 업로드 실패 `No data received` | RESET 두 번 → 부트로더 드라이브 → 다시 업로드하거나 UF2 복사 |
+| RESET을 두 번 눌러도 `NRF52BOOT`가 안 뜸 | 두 번을 더 빠르게 누르기. macOS의 "액세서리 연결 허용" 창에서 **허용** |
+| 로그에 `Board error: Unknown scene.` | 펌웨어가 예전 버전이라 그 장면을 모름. 새 UF2로 다시 굽기 |
 
 ---
 
@@ -425,7 +455,8 @@ host/autostart_mac.sh uninstall   # 자동 시작 끄기
 - 버스 앞코 x = `116 − round(남은 초 / 960 × 82)`. 16분 전 x=34에서 출발해 도착 때 정류장(x=116)에 닿습니다.
 - 깃발은 출발선(PC가 보내는 `leave_s` = 걷는 시간 + 여유) 자리에 그립니다.
 - 보드는 받은 남은 시간을 혼자 1초씩 깎으며 그립니다. PC가 5초에 한 번만 보내도 매끄럽게 움직입니다.
-- 화면 디자인의 기준은 `tools/preview/preview.py`입니다. 펌웨어 `drawScreen()`은 그 `render()`를 좌표·순서 그대로 옮겼습니다. 디자인을 고칠 때는 두 파일을 같이 고치세요.
+- 화면 디자인의 기준은 `tools/preview/preview.py`입니다. 펌웨어 `drawScreen()`은 그 `render()`를, `drawDino()`·`drawBunny()`·`drawBye()`·`drawGoHard()`는 `render_scene()`을 좌표·순서 그대로 옮겼습니다. 디자인을 고칠 때는 두 파일을 같이 고치세요.
+- 응원(`gohard`)과 잠든 토끼(`bye`) 장면의 번인 방지 이동은 `tick` 비트로 만든 삼각파입니다. 주기가 2의 거듭제곱이라 `uint16_t` `tick`이 한 바퀴 돌아도 그림이 튀지 않습니다.
 
 ```bash
 .venv/bin/python tools/preview/preview.py                # 시안 PNG + GIF (한글·영어)
@@ -454,6 +485,7 @@ host/autostart_mac.sh uninstall   # 자동 시작 끄기
 | `S\|state\|arrive_s\|speed\|leave_s\|bottom_left\|bottom_right\|msg` | 화면 상태. 아래 표 참고 |
 | `N\|text` | 안내 화면. `No bus to catch`, `Error, retrying...`, `Off hours` (한글: `탈 버스 없음`, `오류… 다시 시도 중`, `알림 시간 아님`) |
 | `Z\|text` | 잠자는 화면 + 글자 한 줄. PC가 멈출 때 보냅니다 |
+| `A\|scene\|text` | 장면 화면. `scene`은 `dino` / `bunny` / `bye` / `gohard`. 예: `A\|gohard\|Go hard!`, `A\|bye\|` (잠든 토끼, 글자 없음) |
 | `P\|on` / `P\|off` | 화면 켜기 / 끄기 |
 | `M\|demo` / `M\|live` | 모드 표시 (LED2) |
 
@@ -492,7 +524,7 @@ PC는 상태나 문구가 바뀌면 바로, 아니면 5초(데모 2초)마다 �
 | `firmware/nu40_commute/commute_font.h` | 글꼴 데이터 (자동 생성물, 고치지 말 것) |
 | `build/nu40_commute/nu40_commute.uf2` | 컴파일된 펌웨어 (복사해서 굽기) |
 | `tools/preview/preview.py` | 화면 시안 = 디자인 기준 |
-| `tools/preview/*.png`, `*.gif` | 시안 이미지 (`en_*`는 영어, 나머지는 한글, `0_boot.png`·`sleep.gif`는 잠자는 화면) |
+| `tools/preview/*.png`, `*.gif` | 시안 이미지 (`en_*`는 영어, 나머지는 한글, `0_boot.png`·`sleep.gif`는 잠자는 화면, `dino.gif`·`bunny.gif`·`bye.gif`·`gohard.gif`는 장면) |
 | `tools/make_commute_font.py` | 글꼴 헤더 생성기 |
 
 ---
