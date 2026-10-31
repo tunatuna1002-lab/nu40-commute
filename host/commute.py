@@ -37,6 +37,7 @@ commute.py — picks the Gyeonggi-do bus you can still catch and tells the NU40 
 import argparse
 import os
 import re
+import subprocess
 import sys
 import threading
 import time
@@ -102,6 +103,7 @@ NOTICES = {
         "bed": "이제 잘 시간이야!",
         "bye": "나도 자러 갈게. 잘 자!",
         "gohard": "Go hard!",
+        "awake": "Still up? Go to bed!",
     },
     "en": {
         "wait": "Waiting for PC...",
@@ -111,6 +113,7 @@ NOTICES = {
         "bed": "Time to sleep!",
         "bye": "Me too. Good night!",
         "gohard": "Go hard!",
+        "awake": "Still up? Go to bed!",
     },
 }
 
@@ -233,6 +236,12 @@ class Config:
             log(tr(f"IDLE_SCENE='{self.idle_scene}' 는 gohard 가 아니라 무시합니다.",
                    f"IDLE_SCENE='{self.idle_scene}' is not gohard — ignored."))
             self.idle_scene = None
+        # 잘 자 1분 뒤 ~ ON_AT 밤 시간. sleep 이면 잠든 토끼, 맥을 쓰고 있으면 토끼가 "언제 잘 거야?"
+        self.night_scene = (merged.get("NIGHT_SCENE") or "").strip().lower() or None
+        if self.night_scene not in (None, "sleep"):
+            log(tr(f"NIGHT_SCENE='{self.night_scene}' 는 sleep 이 아니라 무시합니다.",
+                   f"NIGHT_SCENE='{self.night_scene}' is not sleep — ignored."))
+            self.night_scene = None
         self.demo_speed = max(1, self._int(merged.get("DEMO_SPEED"), 8, "DEMO_SPEED"))
 
     @staticmethod
@@ -275,7 +284,7 @@ class Config:
 
     def scene_text(self, scene):
         return {"dino": "", "bunny": self.notice("bed"), "bye": self.notice("bye"),
-                "gohard": self.notice("gohard")}[scene]
+                "gohard": self.notice("gohard"), "sleep": "", "awake": self.notice("awake")}[scene]
 
     def off_at_on(self, day):
         """그날의 끄는 시각 (OFF_AT_ONCE 가 그날이면 그 값)."""
@@ -664,12 +673,28 @@ def in_window(cfg, now):
     return _between(cfg.on_at, off_at, now.hour * 60 + now.minute)
 
 
-SCENES = ("dino", "bunny", "bye", "gohard")
-BYE_S = 60                    # BED_OFF_AT 에 토끼가 "나도 잘게" 하고 있는 시간. 그 뒤 IDLE_SCENE (없으면 화면 끔)
+SCENES = ("dino", "bunny", "bye", "gohard", "sleep", "awake")
+BOARD_SCENE = {"sleep": "bye", "awake": "bunny"}   # 밤 장면은 보드의 잘자·토끼 그림을 빌려 쓴다
+BYE_S = 60                    # BED_OFF_AT 에 토끼가 "나도 잘게" 하고 있는 시간. 그 뒤 NIGHT_SCENE, 없으면 IDLE_SCENE
+AWAKE_IDLE_S = 120            # 밤에 맥 키보드·마우스를 이만큼 안 만졌으면 자는 것으로 본다
 
 
-def scene_at(cfg, now):
-    """지금 화면에 무엇을 보일까: 'bus', 'dino', 'bunny', 'bye', 그 밖엔 IDLE_SCENE, 없으면 None (화면 끔)."""
+def mac_idle_s():
+    """맥 키보드·마우스를 마지막으로 만진 뒤 지난 초. 맥이 아니거나 못 읽으면 None."""
+    if sys.platform != "darwin":
+        return None
+    try:
+        out = subprocess.run(["ioreg", "-c", "IOHIDSystem", "-d", "4"],
+                             capture_output=True, text=True, timeout=2).stdout
+        m = re.search(r'"HIDIdleTime" = (\d+)', out)
+        return int(m.group(1)) / 1e9 if m else None
+    except Exception:
+        return None
+
+
+def scene_at(cfg, now, awake=False):
+    """지금 화면에 무엇을 보일까: 'bus', 'dino', 'bunny', 'bye', 밤엔 'sleep' / 'awake' (awake: 맥을 쓰는 중),
+    그 밖엔 IDLE_SCENE, 없으면 None (화면 끔)."""
     if in_window(cfg, now):
         return "bus"
     cur = now.hour * 60 + now.minute
@@ -679,6 +704,9 @@ def scene_at(cfg, now):
         since = (now.hour * 3600 + now.minute * 60 + now.second - cfg.bed_off_at * 60) % 86400
         if since < BYE_S:
             return "bye"
+        if cfg.night_scene and cfg.on_at is not None and \
+                _between((cfg.bed_off_at + BYE_S // 60) % 1440, cfg.on_at, cur):
+            return "awake" if awake else "sleep"
     off_at = cfg.off_at_on(now.date())
     if cfg.dino_until is not None and off_at is not None and off_at <= cur < cfg.dino_until:
         return "dino"
@@ -1045,6 +1073,9 @@ def main():
         if cfg.bed_at is not None and cfg.bed_off_at is not None:
             log(tr(f"토끼: {hm(cfg.bed_at)} ~ {hm(cfg.bed_off_at)}, 그 뒤 잘 자 1분",
                    f"Bunny: {hm(cfg.bed_at)} ~ {hm(cfg.bed_off_at)}, then good night for 1 min"))
+        if cfg.night_scene and cfg.bed_off_at is not None:
+            log(tr(f"밤: 잘 자 뒤 ~ {hm(cfg.on_at)} 잠든 토끼, 맥을 쓰면 \"{cfg.notice('awake')}\"",
+                   f"Night: after good night ~ {hm(cfg.on_at)} sleeping bunny, \"{cfg.notice('awake')}\" while the Mac is in use"))
         log(tr("그 밖의 시간: 토끼가 Go hard!" if cfg.idle_scene else "그 밖의 시간: 화면 끔",
                "Other times: bunny says Go hard!" if cfg.idle_scene else "Other times: screen off"))
     elif not demo:
@@ -1147,7 +1178,8 @@ def main():
             elif demo or args.always_on:
                 want_on = True
             else:
-                scene = scene_at(cfg, datetime.now())
+                idle = mac_idle_s() if cfg.night_scene else None
+                scene = scene_at(cfg, datetime.now(), awake=idle is not None and idle < AWAKE_IDLE_S)
                 want_on = scene is not None
                 off_hours = not want_on
             send_power(want_on, off_hours)
@@ -1159,9 +1191,9 @@ def main():
                 time.sleep(1.0)
                 continue
 
-            # 3) 버스 시간대 밖의 장면 (공룡, 토끼, Go hard). 보드가 혼자 움직이고, API 는 부르지 않는다
+            # 3) 버스 시간대 밖의 장면 (공룡, 토끼, Go hard, 밤). 보드가 혼자 움직이고, API 는 부르지 않는다
             if scene in SCENES:
-                line = f"A|{scene}|{cfg.scene_text(scene)}"
+                line = f"A|{BOARD_SCENE.get(scene, scene)}|{cfg.scene_text(scene)}"
                 if line != last_scene or now_real - last_send >= keepalive:
                     link.send(line)
                     render(line)
