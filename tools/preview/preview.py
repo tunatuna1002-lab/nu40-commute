@@ -744,22 +744,28 @@ def render_scene(scene, text="", tick=0):
         return img
 
     if scene == "bye":
-        # 밤하늘 + 떠오르는 z/Z + 베개 베고 잠든 토끼 + 아래 가운데 문구
-        step = (tick % 20) // 2
-        sprite(d, MOON, 14, 4)
-        sprite(d, STAR, 34, 7)
-        sprite(d, STAR, 106, 6)
-        sprite(d, Z_SMALL, 70 + step // 2, 18 - step)
-        sprite(d, Z_BIG, 76 + step // 2, 9 - step)
+        # 밤하늘 + 떠오르는 z/Z + 베개 베고 잠든 토끼 + 아래 가운데 문구 + 번인 방지 천천히 이동
+        px = (tick >> 6) & 15
+        py = (tick >> 9) & 15
+        dx = (px if px <= 8 else (16 - px)) - 4
+        dy = (py if py <= 8 else (16 - py)) // 2
 
-        d.line((0, BYE_GROUND_Y, 127, BYE_GROUND_Y), fill=1)
-        for x in range(2, 128, 10):
-            d.point((x, BYE_GROUND_Y + 1), 1)
+        step = (tick % 20) // 2
+        sprite(d, MOON, 14 + dx, 4 + dy)
+        sprite(d, STAR, 34 + dx, 7 + dy)
+        sprite(d, STAR, 106 + dx, 6 + dy)
+        sprite(d, Z_SMALL, 70 + step // 2 + dx, 18 - step + dy)
+        sprite(d, Z_BIG, 76 + step // 2 + dx, 9 - step + dy)
+
+        d.line((0, BYE_GROUND_Y + dy, 127, BYE_GROUND_Y + dy), fill=1)
+        for x in range(2 + dx, 128, 10):
+            if 0 <= x < 128:
+                d.point((x, BYE_GROUND_Y + 1 + dy), 1)
         breath = (tick // 5) % 2
-        sprite(d, BYE_BUNNY[breath], BYE_BUNNY_X, BYE_GROUND_Y - BYE_BUNNY_H)
+        sprite(d, BYE_BUNNY[breath], BYE_BUNNY_X + dx, BYE_GROUND_Y - BYE_BUNNY_H + dy)
 
         if text:
-            d.text(((W - text_w(text)) // 2, BYE_TEXT_Y), text, font=GALMURI, fill=1)
+            d.text(((W - text_w(text)) // 2 + dx, BYE_TEXT_Y + dy), text, font=GALMURI, fill=1)
         return img
 
     # scene == "gohard": 큰 토끼 얼굴이 주먹을 불끈 쥐고 응원 + 번인 방지 천천히 이동
