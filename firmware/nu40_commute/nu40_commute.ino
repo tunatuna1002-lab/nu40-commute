@@ -971,23 +971,29 @@ void drawBunny() {
 }
 
 // 잘자 장면 (A|bye|<text>) — preview.py render_scene("bye") 와 같다
+// 밤새 켜 두므로 2의 거듭제곱 주기(1024틱·8192틱)로 전체 구도를 천천히 이동시켜 번인을 막는다.
 void drawBye() {
-  int16_t step = (tick % 20) / 2;
-  drawBits8(MOON_BITS, 7, 7, 14, 4);
-  drawBits8(STAR_BITS, 3, 3, 34, 7);
-  drawBits8(STAR_BITS, 3, 3, 106, 6);
-  drawBits8(Z_SMALL_BITS, 4, 4, 70 + step / 2, 18 - step);
-  drawBits8(Z_BIG_BITS, 5, 5, 76 + step / 2, 9 - step);
+  uint8_t px = (tick >> 6) & 15;
+  uint8_t py = (tick >> 9) & 15;
+  int16_t dx = ((px <= 8) ? (int16_t)px : (int16_t)(16 - px)) - 4;
+  int16_t dy = ((py <= 8) ? (int16_t)py : (int16_t)(16 - py)) / 2;
 
-  display.drawFastHLine(0, BYE_GROUND_Y, 128, SSD1306_WHITE);
-  for (int16_t x = 2; x < 128; x += 10) {
-    display.drawPixel(x, BYE_GROUND_Y + 1, SSD1306_WHITE);
+  int16_t step = (tick % 20) / 2;
+  drawBits8(MOON_BITS, 7, 7, 14 + dx, 4 + dy);
+  drawBits8(STAR_BITS, 3, 3, 34 + dx, 7 + dy);
+  drawBits8(STAR_BITS, 3, 3, 106 + dx, 6 + dy);
+  drawBits8(Z_SMALL_BITS, 4, 4, 70 + step / 2 + dx, 18 - step + dy);
+  drawBits8(Z_BIG_BITS, 5, 5, 76 + step / 2 + dx, 9 - step + dy);
+
+  display.drawFastHLine(0, BYE_GROUND_Y + dy, 128, SSD1306_WHITE);
+  for (int16_t x = 2 + dx; x < 128; x += 10) {
+    if (x >= 0) display.drawPixel(x, BYE_GROUND_Y + 1 + dy, SSD1306_WHITE);
   }
   uint8_t breath = (tick / 5) % 2;
-  drawBits32(BYE_BUNNY_BITS[breath], BYE_BUNNY_W, BYE_BUNNY_H, BYE_BUNNY_X, BYE_GROUND_Y - BYE_BUNNY_H);
+  drawBits32(BYE_BUNNY_BITS[breath], BYE_BUNNY_W, BYE_BUNNY_H, BYE_BUNNY_X + dx, BYE_GROUND_Y - BYE_BUNNY_H + dy);
 
   if (sceneText[0] != '\0') {
-    drawText((SCREEN_WIDTH - textWidth(sceneText)) / 2, BYE_TEXT_Y, sceneText);
+    drawText((SCREEN_WIDTH - textWidth(sceneText)) / 2 + dx, BYE_TEXT_Y + dy, sceneText);
   }
 }
 
