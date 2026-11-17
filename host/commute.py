@@ -1193,11 +1193,12 @@ def main():
 
             # 3) 버스 시간대 밖의 장면 (공룡, 토끼, Go hard, 밤). 보드가 혼자 움직이고, API 는 부르지 않는다
             if scene in SCENES:
-                line = f"A|{BOARD_SCENE.get(scene, scene)}|{cfg.scene_text(scene)}"
+                # 넷째 칸은 보드 오른쪽 위 시계. 분이 바뀌면 줄이 달라져 바로 다시 보낸다
+                line = f"A|{BOARD_SCENE.get(scene, scene)}|{cfg.scene_text(scene)}|{datetime.now():%H:%M}"
                 if line != last_scene or now_real - last_send >= keepalive:
                     link.send(line)
                     render(line)
-                    if line != last_scene:
+                    if last_scene is None or line.rsplit("|", 1)[0] != last_scene.rsplit("|", 1)[0]:
                         log(tr(f"장면: {scene}", f"Scene: {scene}"))
                     last_scene, last_frame, last_notice, last_send = line, None, None, now_real
                 time.sleep(1.0)

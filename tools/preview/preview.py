@@ -69,6 +69,9 @@ GOHARD_X = 3                         # 응원 토끼 기준 왼쪽 끝 x
 GOHARD_Y = 8                         # 응원 토끼 기준 윗줄 y
 GOHARD_BUBBLE = (40, 20, 113, 34)    # 응원 말풍선 (x0, y0, x1, y1)
 GOHARD_TEXT_Y = 22                   # 응원 말풍선 안 글자 윗줄
+CLOCK_Y = -2                         # 장면 화면 시계 글자 윗줄 (갈무리 픽셀은 y+2 부터라 맨 윗줄 0 부터 찍힌다)
+CLOCK_MAX = 5                        # 시계 칸 최대 글자 수 (HH:MM). 더 길면 그리지 않는다
+SAMPLE_CLOCK = {"dino": "10:30", "bunny": "22:30", "bye": "00:00", "gohard": "18:00"}   # 시안 그림의 시계 (그 장면이 나오는 시각)
 
 # ── 픽셀 그림 (# = 켜진 픽셀) ─────────────────────────────
 BUS = """
@@ -692,7 +695,13 @@ def render_boot():
     return render_sleep("")
 
 
-def render_scene(scene, text="", tick=0):
+def draw_clock(d, clock, right, y):
+    """장면 화면 오른쪽 위 시계 (A| 줄 넷째 칸, 예: 21:48). 오른쪽 끝을 right 에 맞춘다. 펌웨어 drawClock() 과 같다."""
+    if clock:
+        d.text((right - text_w(clock), y), clock, font=GALMURI, fill=1)
+
+
+def render_scene(scene, text="", tick=0, clock=""):
     """장면 화면 (A| 줄). 펌웨어 drawDino() / drawBunny() / drawBye() / drawGoHard() 와 픽셀 단위로 같다."""
     if scene not in ("dino", "bunny", "bye", "gohard"):
         raise ValueError(f"모르는 장면: {scene}")
@@ -703,7 +712,7 @@ def render_scene(scene, text="", tick=0):
         # 낮 배경: 해 + 구름 두 점 + 풀포기 + 땅 줄과 자갈
         sprite(d, SUN, 12, 3)
         sprite(d, CLOUD, 48, 6)
-        sprite(d, CLOUD, 96, 4)
+        sprite(d, CLOUD, 78, 5)                 # 오른쪽 위는 시계 자리
         sprite(d, GRASS, 24, DINO_GROUND_Y - 3)
         sprite(d, GRASS, 94, DINO_GROUND_Y - 3)
         d.line((0, DINO_GROUND_Y, 127, DINO_GROUND_Y), fill=1)
@@ -721,6 +730,7 @@ def render_scene(scene, text="", tick=0):
 
         if text:
             d.text(((W - text_w(text)) // 2, DINO_TEXT_Y), text, font=GALMURI, fill=1)
+        draw_clock(d, clock, W - 1, CLOCK_Y)
         return img
 
     if scene == "bunny":
@@ -728,7 +738,7 @@ def render_scene(scene, text="", tick=0):
         sprite(d, MOON, 12, 5)
         sprite(d, STAR, 36, 8)
         sprite(d, STAR, 76, 4)
-        sprite(d, STAR, 110, 7)
+        sprite(d, STAR, 90, 10)                 # 오른쪽 위는 시계 자리
 
         # 땅 줄 + 토끼 (팔 흔들기 + 4초마다 귀 쫑긋·눈 깜빡)
         d.line((0, BUNNY_GROUND_Y, 127, BUNNY_GROUND_Y), fill=1)
@@ -741,6 +751,7 @@ def render_scene(scene, text="", tick=0):
         x0, y0, x1, y1 = BUNNY_BUBBLE
         bubble(d, x0, y0, x1, y1, "left")
         d.text((x0 + (x1 - x0 + 1 - text_w(text)) // 2, BUNNY_TEXT_Y), text, font=GALMURI, fill=1)
+        draw_clock(d, clock, W - 1, CLOCK_Y)
         return img
 
     if scene == "bye":
@@ -753,7 +764,7 @@ def render_scene(scene, text="", tick=0):
         step = (tick % 20) // 2
         sprite(d, MOON, 14 + dx, 4 + dy)
         sprite(d, STAR, 34 + dx, 7 + dy)
-        sprite(d, STAR, 106 + dx, 6 + dy)
+        sprite(d, STAR, 100 + dx, 17 + dy)      # 오른쪽 위는 시계 자리
         sprite(d, Z_SMALL, 70 + step // 2 + dx, 18 - step + dy)
         sprite(d, Z_BIG, 76 + step // 2 + dx, 9 - step + dy)
 
@@ -766,6 +777,7 @@ def render_scene(scene, text="", tick=0):
 
         if text:
             d.text(((W - text_w(text)) // 2 + dx, BYE_TEXT_Y + dy), text, font=GALMURI, fill=1)
+        draw_clock(d, clock, W - 5 + dx, CLOCK_Y + dy)   # 시계도 같이 움직인다 (dx -4..+4)
         return img
 
     # scene == "gohard": 큰 토끼 얼굴이 주먹을 불끈 쥐고 응원 + 번인 방지 천천히 이동
@@ -793,6 +805,7 @@ def render_scene(scene, text="", tick=0):
     bx0, by0, bx1, by1 = x0 + dx, y0 + dy, x1 + dx, y1 + dy
     bubble(d, bx0, by0, bx1, by1, "left")
     d.text((bx0 + (bx1 - bx0 + 1 - text_w(text)) // 2, GOHARD_TEXT_Y + dy), text, font=GALMURI, fill=1)
+    draw_clock(d, clock, W - 9 + dx, CLOCK_Y + dy)       # 시계도 같이 움직인다 (dx 0..8)
     return img
 
 
@@ -801,7 +814,7 @@ def render_line(line, tick=0):
       S|<state>|<arrive_s>|<speed>|<leave_s>|<bottom_left>|<bottom_right>|<msg>
       N|<text>      안내 화면
       Z|<text>      잠자는 화면 (PC 가 멈출 때)
-      A|<scene>|<text> 장면 화면 (dino / bunny / bye / gohard)
+      A|<scene>|<text>[|<HH:MM>] 장면 화면 (dino / bunny / bye / gohard), 넷째 칸은 오른쪽 위 시계
       P|off         화면 꺼짐 (검은 화면)
     """
     line = line.strip()
@@ -821,10 +834,11 @@ def render_line(line, tick=0):
     if line.startswith("Z|"):
         return render_sleep(line[2:], tick)
     if line.startswith("A|"):
-        parts = line.split("|", 2)            # 마지막 칸(문구)은 자르지 않는다 (펌웨어 splitFields 와 같게)
+        parts = line.split("|", 3)            # 마지막 칸(시계)은 자르지 않는다 (펌웨어 splitFields 와 같게)
         scene = parts[1] if len(parts) > 1 else ""
         text = parts[2] if len(parts) > 2 else ""
-        return render_scene(scene, text, tick)
+        clock = parts[3] if len(parts) > 3 and len(parts[3]) <= CLOCK_MAX else ""
+        return render_scene(scene, text, tick, clock)
     if line.startswith("P|"):
         return Image.new("1", (W, H), 0)
     raise ValueError(f"그릴 수 없는 줄: {line[:20]}")
@@ -941,25 +955,25 @@ def main():
         # 잠자는 화면 (PC 가 멈출 때 보내는 Z| 줄)
         to_screen(render_sleep(MESSAGES_BY_LANG[lang]["wait"])).save(OUT / ("6_잠자기.png" if lang == "ko" else "en_6_sleep.png"))
         # 장면 화면 (A| 줄): 공룡(dino), 토끼(bunny), 잘자(bye), 응원(gohard)
-        to_screen(render_scene("dino", "")).save(OUT / ("7_공룡.png" if lang == "ko" else "en_7_dino.png"))
-        to_screen(render_scene("bunny", MESSAGES_BY_LANG[lang]["bunny"])).save(
+        to_screen(render_scene("dino", "", clock=SAMPLE_CLOCK["dino"])).save(OUT / ("7_공룡.png" if lang == "ko" else "en_7_dino.png"))
+        to_screen(render_scene("bunny", MESSAGES_BY_LANG[lang]["bunny"], clock=SAMPLE_CLOCK["bunny"])).save(
             OUT / ("8_토끼.png" if lang == "ko" else "en_8_bunny.png"))
-        to_screen(render_scene("bye", MESSAGES_BY_LANG[lang]["bye"])).save(
+        to_screen(render_scene("bye", MESSAGES_BY_LANG[lang]["bye"], clock=SAMPLE_CLOCK["bye"])).save(
             OUT / ("9_잘자.png" if lang == "ko" else "en_9_bye.png"))
-        to_screen(render_scene("gohard", MESSAGES_BY_LANG[lang]["gohard"])).save(
+        to_screen(render_scene("gohard", MESSAGES_BY_LANG[lang]["gohard"], clock=SAMPLE_CLOCK["gohard"])).save(
             OUT / ("10_gohard.png" if lang == "ko" else "en_10_gohard.png"))
     # 펌웨어 부팅 화면 (두 언어 공통) = 두 줄짜리 잠자는 화면. 움직임은 sleep.gif
     to_screen(render_boot()).save(OUT / "0_boot.png")
     frames = [to_screen(render_sleep("", tick=i), 4) for i in range(40)]
     frames[0].save(OUT / "sleep.gif", save_all=True, append_images=frames[1:], duration=200, loop=0)
     # 장면 애니메이션 GIF (dino: 왕복 1주기, bunny / bye: 20틱 주기, gohard: 응원 주기 + 번인 이동)
-    dino_frames = [to_screen(render_scene("dino", "", tick=t), 4) for t in range(0, DINO_SPAN * 2, 2)]
+    dino_frames = [to_screen(render_scene("dino", "", tick=t, clock=SAMPLE_CLOCK["dino"]), 4) for t in range(0, DINO_SPAN * 2, 2)]
     dino_frames[0].save(OUT / "dino.gif", save_all=True, append_images=dino_frames[1:], duration=100, loop=0)
-    bunny_frames = [to_screen(render_scene("bunny", MESSAGES_BY_LANG["en"]["bunny"], tick=i), 4) for i in range(20)]
+    bunny_frames = [to_screen(render_scene("bunny", MESSAGES_BY_LANG["en"]["bunny"], tick=i, clock=SAMPLE_CLOCK["bunny"]), 4) for i in range(20)]
     bunny_frames[0].save(OUT / "bunny.gif", save_all=True, append_images=bunny_frames[1:], duration=200, loop=0)
-    bye_frames = [to_screen(render_scene("bye", MESSAGES_BY_LANG["en"]["bye"], tick=i), 4) for i in range(20)]
+    bye_frames = [to_screen(render_scene("bye", MESSAGES_BY_LANG["en"]["bye"], tick=i, clock=SAMPLE_CLOCK["bye"]), 4) for i in range(20)]
     bye_frames[0].save(OUT / "bye.gif", save_all=True, append_images=bye_frames[1:], duration=200, loop=0)
-    gohard_frames = [to_screen(render_scene("gohard", MESSAGES_BY_LANG["en"]["gohard"], tick=i), 4) for i in range(40)]
+    gohard_frames = [to_screen(render_scene("gohard", MESSAGES_BY_LANG["en"]["gohard"], tick=i, clock=SAMPLE_CLOCK["gohard"]), 4) for i in range(40)]
     gohard_frames[0].save(OUT / "gohard.gif", save_all=True, append_images=gohard_frames[1:], duration=200, loop=0)
     return 0
 

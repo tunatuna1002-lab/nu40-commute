@@ -78,7 +78,8 @@ PC의 파이썬 프로그램이 경기도 버스 도착정보를 받아 **지금
 | 00:00~00:01 | 잠든 토끼가 "Me too. Good night!" |
 | 00:01~06:30 | 잠든 토끼. 맥을 쓰는 중이면 토끼가 "Still up? Go to bed!" |
 
-- 오래 켜 두는 응원 화면과 잠든 토끼 화면은 OLED 번인을 막으려고 그림 전체가 몇 픽셀씩 천천히 움직입니다.
+- 장면 화면 오른쪽 위에는 지금 시각(`HH:MM`)이 나옵니다. PC 시계를 따르고, 분이 바뀌면 바로 바뀝니다.
+- 오래 켜 두는 응원 화면과 잠든 토끼 화면은 OLED 번인을 막으려고 시계를 포함한 그림 전체가 몇 픽셀씩 천천히 움직입니다.
 - "맥을 쓰는 중"은 키보드나 마우스를 2분 안에 만졌다는 뜻입니다. 맥에서만 알아챕니다.
 
 ---
@@ -485,7 +486,7 @@ host/autostart_mac.sh uninstall   # 자동 시작 끄기
 | `S\|state\|arrive_s\|speed\|leave_s\|bottom_left\|bottom_right\|msg` | 화면 상태. 아래 표 참고 |
 | `N\|text` | 안내 화면. `No bus to catch`, `Error, retrying...`, `Off hours` (한글: `탈 버스 없음`, `오류… 다시 시도 중`, `알림 시간 아님`) |
 | `Z\|text` | 잠자는 화면 + 글자 한 줄. PC가 멈출 때 보냅니다 |
-| `A\|scene\|text` | 장면 화면. `scene`은 `dino` / `bunny` / `bye` / `gohard`. 예: `A\|gohard\|Go hard!`, `A\|bye\|` (잠든 토끼, 글자 없음) |
+| `A\|scene\|text\|HH:MM` | 장면 화면. `scene`은 `dino` / `bunny` / `bye` / `gohard`. 마지막 칸은 오른쪽 위 시계이고, 빼면 시계를 그리지 않습니다. 예: `A\|gohard\|Go hard!\|21:48`, `A\|bye\|\|03:15` (잠든 토끼, 글자 없음) |
 | `P\|on` / `P\|off` | 화면 켜기 / 끄기 |
 | `M\|demo` / `M\|live` | 모드 표시 (LED2) |
 

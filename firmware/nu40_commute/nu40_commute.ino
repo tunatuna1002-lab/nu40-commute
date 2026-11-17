@@ -22,7 +22,7 @@
       S|<state>|<arrive_s>|<speed>|<leave_s>|<bottom_left>|<bottom_right>|<msg>   화면 상태 (가장 자주 옴)
       N|<text>        안내 화면 (예: 탈 버스 없음)
       Z|<text>        잠자는 화면 (PC 가 멈출 때. 글자가 비면 한글/영어 두 줄)
-      A|<scene>|<text> 장면 화면 (dino / bunny / bye / gohard)
+      A|<scene>|<text>[|<HH:MM>] 장면 화면 (dino / bunny / bye / gohard), 넷째 칸은 오른쪽 위 시계
       P|on / P|off    화면 켜기 / 끄기 (ON_AT~OFF_AT 스케줄, 촬영용 지연 시작)
       M|demo / M|live 모드 표시 (LED2 로만 표시, 화면엔 안 그림)
     보드 → PC
@@ -98,6 +98,7 @@ static const int16_t BUNNY_TEXT_Y  = 36;    // 토끼 말풍선 안 글자 윗�
 static const int16_t BYE_GROUND_Y  = 38;    // 잘자 화면 땅 줄
 static const int16_t BYE_BUNNY_X   = 48;    // 잠든 토끼 왼쪽 끝 x
 static const int16_t BYE_TEXT_Y    = 46;    // 잘자 화면 아래 글자 윗줄
+static const int16_t CLOCK_Y       = -2;    // 장면 화면 시계 글자 윗줄 (글자 픽셀은 y+2 부터라 맨 윗줄 0 부터 찍힌다)
 static const int16_t GOHARD_X      = 3;     // 응원 토끼 기준 왼쪽 끝 x
 static const int16_t GOHARD_Y      = 8;     // 응원 토끼 기준 윗줄 y
 static const int16_t GOHARD_BX0 = 40, GOHARD_BY0 = 20, GOHARD_BX1 = 113, GOHARD_BY1 = 34;  // 응원 말풍선
@@ -517,6 +518,7 @@ static ScreenMode mode = MODE_SLEEP;
 static char     sleepText[64] = "";        // 잠자는 화면 글자. 비어 있으면 BOOT_LINE_KO / BOOT_LINE_EN 두 줄
 static int8_t   sceneIdx      = 0;         // 장면 번호: 0 dino, 1 bunny, 2 bye, 3 gohard
 static char     sceneText[64] = "";        // 장면 화면 글자 (A| 줄)
+static char     sceneClock[6] = "";        // 장면 화면 오른쪽 위 시계 (A| 줄 넷째 칸, HH:MM). 비면 안 그린다
 static const uint32_t PC_SILENT_MS = 30000; // PC 는 5초(데모 2초)마다 보낸다. 이만큼 조용하면 PC 가 멈춘 것으로 본다
 static uint32_t lastLineMs = 0;            // PC 가 마지막으로 줄을 보낸 시각
 static int8_t   stateIdx = 0;              // 0 relax, 1 pack, 2 go, 3 missed
@@ -689,13 +691,15 @@ void handleLine(char* line) {
   }
 
   if (cmd == 'A') {
-    // A|<scene>|<text>
-    char* f[2] = { body, (char*)"" };
-    splitFields(body, f, 2);
+    // A|<scene>|<text>[|<HH:MM>]
+    char* f[3] = { body, (char*)"", (char*)"" };
+    splitFields(body, f, 3);
     int8_t idx = sceneIndex(f[0]);
     if (idx < 0) { Serial.println("ERR|Unknown scene."); return; }
     sceneIdx = idx;
     copyText(sceneText, f[1], sizeof(sceneText));
+    if (strlen(f[2]) < sizeof(sceneClock)) copyText(sceneClock, f[2], sizeof(sceneClock));   // 너무 길면 시계 없음
+    else sceneClock[0] = '\0';
     mode = MODE_SCENE;
     digitalWrite(LED_PINS[LED_GO], LOW);
     if (displayOk && powerOn) drawScreen();
@@ -831,6 +835,11 @@ void drawText(int16_t x, int16_t y, const char* text) {
   }
 }
 
+// 장면 화면 오른쪽 위 시계. 오른쪽 끝을 right 에 맞춘다 — preview.py draw_clock() 과 같다
+void drawClock(int16_t right, int16_t y) {
+  if (sceneClock[0] != '\0') drawText(right - textWidth(sceneClock), y, sceneClock);
+}
+
 // 그렸을 때 가로 몇 픽셀인지 (가운데·오른쪽 정렬용). PIL 의 int(getlength()) 와 같다.
 int16_t textWidth(const char* text) {
   int16_t w = 0;
@@ -931,7 +940,7 @@ void drawSleep() {
 void drawDino() {
   drawBits16(SUN_BITS, 9, 9, 12, 3);
   drawBits16(CLOUD_BITS, 12, 5, 48, 6);
-  drawBits16(CLOUD_BITS, 12, 5, 96, 4);
+  drawBits16(CLOUD_BITS, 12, 5, 78, 5);                 // 오른쪽 위는 시계 자리
   drawBits8(GRASS_BITS, 5, 3, 24, DINO_GROUND_Y - 3);
   drawBits8(GRASS_BITS, 5, 3, 94, DINO_GROUND_Y - 3);
   display.drawFastHLine(0, DINO_GROUND_Y, 128, SSD1306_WHITE);
@@ -950,6 +959,7 @@ void drawDino() {
   if (sceneText[0] != '\0') {
     drawText((SCREEN_WIDTH - textWidth(sceneText)) / 2, DINO_TEXT_Y, sceneText);
   }
+  drawClock(SCREEN_WIDTH - 1, CLOCK_Y);
 }
 
 // 토끼 장면 (A|bunny|<text>) — preview.py render_scene("bunny") 와 같다
@@ -957,7 +967,7 @@ void drawBunny() {
   drawBits8(MOON_BITS, 7, 7, 12, 5);
   drawBits8(STAR_BITS, 3, 3, 36, 8);
   drawBits8(STAR_BITS, 3, 3, 76, 4);
-  drawBits8(STAR_BITS, 3, 3, 110, 7);
+  drawBits8(STAR_BITS, 3, 3, 90, 10);                   // 오른쪽 위는 시계 자리
 
   display.drawFastHLine(0, BUNNY_GROUND_Y, 128, SSD1306_WHITE);
   for (int16_t x = 2; x < 128; x += 10) {
@@ -968,6 +978,7 @@ void drawBunny() {
 
   drawBubble(BUNNY_BX0, BUNNY_BY0, BUNNY_BX1, BUNNY_BY1, true, 0);
   drawText(BUNNY_BX0 + (BUNNY_BX1 - BUNNY_BX0 + 1 - textWidth(sceneText)) / 2, BUNNY_TEXT_Y, sceneText);
+  drawClock(SCREEN_WIDTH - 1, CLOCK_Y);
 }
 
 // 잘자 장면 (A|bye|<text>) — preview.py render_scene("bye") 와 같다
@@ -981,7 +992,7 @@ void drawBye() {
   int16_t step = (tick % 20) / 2;
   drawBits8(MOON_BITS, 7, 7, 14 + dx, 4 + dy);
   drawBits8(STAR_BITS, 3, 3, 34 + dx, 7 + dy);
-  drawBits8(STAR_BITS, 3, 3, 106 + dx, 6 + dy);
+  drawBits8(STAR_BITS, 3, 3, 100 + dx, 17 + dy);        // 오른쪽 위는 시계 자리
   drawBits8(Z_SMALL_BITS, 4, 4, 70 + step / 2 + dx, 18 - step + dy);
   drawBits8(Z_BIG_BITS, 5, 5, 76 + step / 2 + dx, 9 - step + dy);
 
@@ -995,6 +1006,7 @@ void drawBye() {
   if (sceneText[0] != '\0') {
     drawText((SCREEN_WIDTH - textWidth(sceneText)) / 2 + dx, BYE_TEXT_Y + dy, sceneText);
   }
+  drawClock(SCREEN_WIDTH - 5 + dx, CLOCK_Y + dy);       // 시계도 같이 움직인다 (dx -4..+4)
 }
 
 // 응원 장면 (A|gohard|<text>) — preview.py render_scene("gohard") 와 같다
@@ -1026,6 +1038,7 @@ void drawGoHard() {
   int16_t bx1 = GOHARD_BX1 + dx, by1 = GOHARD_BY1 + dy;
   drawBubble(bx0, by0, bx1, by1, true, 0);
   drawText(bx0 + (bx1 - bx0 + 1 - textWidth(sceneText)) / 2, GOHARD_TEXT_Y + dy, sceneText);
+  drawClock(SCREEN_WIDTH - 9 + dx, CLOCK_Y + dy);       // 시계도 같이 움직인다 (dx 0..8)
 }
 
 void drawScreen() {
