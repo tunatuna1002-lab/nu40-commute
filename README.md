@@ -62,24 +62,29 @@ PC의 파이썬 프로그램이 경기도 버스 도착정보를 받아 **지금
 
 버스 시간대(`ON_AT`~`OFF_AT`)가 아닐 때 화면을 끄지 않고 장면을 보일 수 있습니다. 장면은 API를 부르지 않습니다.
 
-| 공룡 | 토끼: 잘 시간 | 응원 | 잠든 토끼 |
+| 공룡 | 토끼: 잘 시간 | 큰 시계 | 잠든 토끼 |
 |:---:|:---:|:---:|:---:|
-| ![공룡](tools/preview/dino.gif) | ![토끼](tools/preview/bunny.gif) | ![Go hard](tools/preview/gohard.gif) | ![잠든 토끼](tools/preview/bye.gif) |
-| `DINO_UNTIL` | `BED_AT` | `IDLE_SCENE=gohard` | `BED_OFF_AT`, `NIGHT_SCENE=sleep` |
+| ![공룡](tools/preview/dino.gif) | ![토끼](tools/preview/bunny.gif) | ![큰 시계](tools/preview/clock.gif) | ![잠든 토끼](tools/preview/bye.gif) |
+| `DINO_UNTIL` | `BED_AT` | `IDLE_SCENE=clock` | `BED_OFF_AT`, `NIGHT_SCENE=sleep` |
 
-예를 들어 `ON_AT=06:30`, `OFF_AT=09:30`, `DINO_UNTIL=13:00`, `BED_AT=22:00`, `IDLE_SCENE=gohard`, `NIGHT_SCENE=sleep`이면 하루가 이렇게 지나갑니다.
+`IDLE_SCENE=gohard`로 두면 큰 시계 대신 토끼가 "Go hard!" 하는 응원 화면을 보입니다.
+
+![Go hard](tools/preview/gohard.gif)
+
+예를 들어 `ON_AT=06:30`, `OFF_AT=09:30`, `DINO_UNTIL=13:00`, `BED_AT=22:00`, `IDLE_SCENE=clock`, `NIGHT_SCENE=sleep`이면 하루가 이렇게 지나갑니다.
 
 | 시간 | 화면 |
 |---|---|
 | 06:30~09:30 | 버스 |
 | 09:30~13:00 | 공룡이 왔다 갔다 |
-| 13:00~22:00 | 토끼가 "Go hard!" |
+| 13:00~22:00 | 가운데 큰 시계 |
 | 22:00~00:00 | 토끼가 "Time to sleep!" |
 | 00:00~00:01 | 잠든 토끼가 "Me too. Good night!" |
 | 00:01~06:30 | 잠든 토끼. 맥을 쓰는 중이면 토끼가 "Still up? Go to bed!" |
 
-- 장면 화면 오른쪽 위에는 지금 시각(`HH:MM`)이 나옵니다. PC 시계를 따르고, 분이 바뀌면 바로 바뀝니다.
-- 오래 켜 두는 응원 화면과 잠든 토끼 화면은 OLED 번인을 막으려고 시계를 포함한 그림 전체가 몇 픽셀씩 천천히 움직입니다.
+- 큰 시계 화면은 지금 시각(`HH:MM`)을 4배 크기로 가운데에 보입니다. 콜론은 1초마다 깜빡입니다.
+- 나머지 장면 화면은 오른쪽 위에 작은 시계가 나옵니다. 시계는 PC 시계를 따르고, 분이 바뀌면 바로 바뀝니다.
+- 오래 켜 두는 큰 시계, 응원, 잠든 토끼 화면은 OLED 번인을 막으려고 시계를 포함한 그림 전체가 몇 픽셀씩 천천히 움직입니다.
 - "맥을 쓰는 중"은 키보드나 마우스를 2분 안에 만졌다는 뜻입니다. 맥에서만 알아챕니다.
 
 ---
@@ -327,7 +332,7 @@ python3 -m venv .venv
 | `OFF_AT_ONCE` | 비움 | 하루만 늦게 끄기. 예: `2026-10-29 18:00` (그날만 `OFF_AT` 대신) |
 | `DINO_UNTIL` | 비움 | 예: `13:00`. 버스 시간대가 끝난 뒤 이때까지 작은 공룡이 왔다 갔다 합니다 |
 | `BED_AT` / `BED_OFF_AT` | 비움 / `00:00` | 예: `22:00`. 토끼가 자라고 하고, `BED_OFF_AT`에 "Me too. Good night!" 하고 1분 뒤 화면을 끕니다 (`NIGHT_SCENE`이나 `IDLE_SCENE`이 있으면 그 장면으로 바뀝니다) |
-| `IDLE_SCENE` | 비움 | `gohard`로 두면 버스·공룡·토끼·밤 시간이 아닐 때 토끼가 "Go hard!" 합니다. 비우면 그 시간엔 화면을 끕니다 |
+| `IDLE_SCENE` | 비움 | 버스·공룡·토끼·밤 시간이 아닐 때의 화면. `clock`이면 가운데 큰 시계, `gohard`면 토끼가 "Go hard!" 합니다. 비우면 그 시간엔 화면을 끕니다 |
 | `NIGHT_SCENE` | 비움 | `sleep`으로 두면 잘 자 1분 뒤부터 `ON_AT`까지 잠든 토끼를 보입니다. 그동안 맥 키보드·마우스를 2분 안에 만졌으면 토끼가 "Still up? Go to bed!" 합니다. `BED_AT`과 `ON_AT`이 있어야 동작합니다 |
 | `LANG` | `en` | 화면·로그 언어 (`en` / `ko`) |
 | `SERIAL_PORT` | 자동 | 보드 포트. 예: `/dev/cu.usbmodem1101`, `COM3` |
@@ -368,7 +373,7 @@ python3 -m venv .venv
 **켜짐과 꺼짐**
 
 1. `ON_AT`~`OFF_AT` 안에서만 버스를 보입니다. 밖에서는 `Off hours`를 보낸 뒤 화면을 끕니다.
-   `DINO_UNTIL`이나 `BED_AT`을 넣으면 그 시간에는 공룡이나 토끼 장면을 보입니다. `IDLE_SCENE=gohard`면 나머지 시간에 "Go hard!" 장면을 보입니다. `NIGHT_SCENE=sleep`이면 밤에는 잠든 토끼를 보입니다. 장면은 API를 부르지 않습니다.
+   `DINO_UNTIL`이나 `BED_AT`을 넣으면 그 시간에는 공룡이나 토끼 장면을 보입니다. `IDLE_SCENE=clock`이면 나머지 시간에 큰 시계를, `IDLE_SCENE=gohard`면 "Go hard!" 장면을 보입니다. `NIGHT_SCENE=sleep`이면 밤에는 잠든 토끼를 보입니다. 장면은 API를 부르지 않습니다.
 2. S1로 정한 켜짐·꺼짐은 다음 S1까지 PC가 덮어쓰지 않습니다.
 3. 데모 모드는 시간대와 관계없이 항상 켭니다.
 4. PC가 갑자기 꺼지거나 케이블이 빠져도 보드는 30초 뒤 스스로 잠자는 화면으로 바뀝니다.
@@ -456,8 +461,8 @@ host/autostart_mac.sh uninstall   # 자동 시작 끄기
 - 버스 앞코 x = `116 − round(남은 초 / 960 × 82)`. 16분 전 x=34에서 출발해 도착 때 정류장(x=116)에 닿습니다.
 - 깃발은 출발선(PC가 보내는 `leave_s` = 걷는 시간 + 여유) 자리에 그립니다.
 - 보드는 받은 남은 시간을 혼자 1초씩 깎으며 그립니다. PC가 5초에 한 번만 보내도 매끄럽게 움직입니다.
-- 화면 디자인의 기준은 `tools/preview/preview.py`입니다. 펌웨어 `drawScreen()`은 그 `render()`를, `drawDino()`·`drawBunny()`·`drawBye()`·`drawGoHard()`는 `render_scene()`을 좌표·순서 그대로 옮겼습니다. 디자인을 고칠 때는 두 파일을 같이 고치세요.
-- 응원(`gohard`)과 잠든 토끼(`bye`) 장면의 번인 방지 이동은 `tick` 비트로 만든 삼각파입니다. 주기가 2의 거듭제곱이라 `uint16_t` `tick`이 한 바퀴 돌아도 그림이 튀지 않습니다.
+- 화면 디자인의 기준은 `tools/preview/preview.py`입니다. 펌웨어 `drawScreen()`은 그 `render()`를, `drawDino()`·`drawBunny()`·`drawBye()`·`drawGoHard()`·`drawBigClock()`은 `render_scene()`을 좌표·순서 그대로 옮겼습니다. 디자인을 고칠 때는 두 파일을 같이 고치세요.
+- 큰 시계(`clock`), 응원(`gohard`), 잠든 토끼(`bye`) 장면의 번인 방지 이동은 `tick` 비트로 만든 삼각파입니다. 주기가 2의 거듭제곱이라 `uint16_t` `tick`이 한 바퀴 돌아도 그림이 튀지 않습니다.
 
 ```bash
 .venv/bin/python tools/preview/preview.py                # 시안 PNG + GIF (한글·영어)
@@ -486,7 +491,7 @@ host/autostart_mac.sh uninstall   # 자동 시작 끄기
 | `S\|state\|arrive_s\|speed\|leave_s\|bottom_left\|bottom_right\|msg` | 화면 상태. 아래 표 참고 |
 | `N\|text` | 안내 화면. `No bus to catch`, `Error, retrying...`, `Off hours` (한글: `탈 버스 없음`, `오류… 다시 시도 중`, `알림 시간 아님`) |
 | `Z\|text` | 잠자는 화면 + 글자 한 줄. PC가 멈출 때 보냅니다 |
-| `A\|scene\|text\|HH:MM` | 장면 화면. `scene`은 `dino` / `bunny` / `bye` / `gohard`. 마지막 칸은 오른쪽 위 시계이고, 빼면 시계를 그리지 않습니다. 예: `A\|gohard\|Go hard!\|21:48`, `A\|bye\|\|03:15` (잠든 토끼, 글자 없음) |
+| `A\|scene\|text\|HH:MM` | 장면 화면. `scene`은 `dino` / `bunny` / `bye` / `gohard` / `clock`. 마지막 칸은 시계(`clock`은 가운데 큰 시계, 나머지는 오른쪽 위)이고, 빼면 시계를 그리지 않습니다. 예: `A\|clock\|\|18:00`, `A\|gohard\|Go hard!\|21:48`, `A\|bye\|\|03:15` (잠든 토끼, 글자 없음) |
 | `P\|on` / `P\|off` | 화면 켜기 / 끄기 |
 | `M\|demo` / `M\|live` | 모드 표시 (LED2) |
 
@@ -525,7 +530,7 @@ PC는 상태나 문구가 바뀌면 바로, 아니면 5초(데모 2초)마다 �
 | `firmware/nu40_commute/commute_font.h` | 글꼴 데이터 (자동 생성물, 고치지 말 것) |
 | `build/nu40_commute/nu40_commute.uf2` | 컴파일된 펌웨어 (복사해서 굽기) |
 | `tools/preview/preview.py` | 화면 시안 = 디자인 기준 |
-| `tools/preview/*.png`, `*.gif` | 시안 이미지 (`en_*`는 영어, 나머지는 한글, `0_boot.png`·`sleep.gif`는 잠자는 화면, `dino.gif`·`bunny.gif`·`bye.gif`·`gohard.gif`는 장면) |
+| `tools/preview/*.png`, `*.gif` | 시안 이미지 (`en_*`는 영어, 나머지는 한글, `0_boot.png`·`sleep.gif`는 잠자는 화면, `dino.gif`·`bunny.gif`·`bye.gif`·`gohard.gif`·`clock.gif`는 장면) |
 | `tools/make_commute_font.py` | 글꼴 헤더 생성기 |
 
 ---

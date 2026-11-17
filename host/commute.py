@@ -230,11 +230,11 @@ class Config:
         self.dino_until = parse_hhmm(merged.get("DINO_UNTIL", ""), "DINO_UNTIL")     # OFF_AT 부터 이때까지 공룡
         self.bed_at = parse_hhmm(merged.get("BED_AT", ""), "BED_AT")                 # 이때부터 토끼가 자라고 한다
         self.bed_off_at = parse_hhmm(merged.get("BED_OFF_AT", "00:00"), "BED_OFF_AT")  # 토끼도 자러 가고 화면 끔
-        # 위 어느 시간대도 아닐 때의 장면. 비우면 화면을 끈다, gohard 면 토끼가 "Go hard!"
+        # 위 어느 시간대도 아닐 때의 장면. 비우면 화면을 끈다, clock 이면 가운데 큰 시계, gohard 면 토끼가 "Go hard!"
         self.idle_scene = (merged.get("IDLE_SCENE") or "").strip().lower() or None
-        if self.idle_scene not in (None, "gohard"):
-            log(tr(f"IDLE_SCENE='{self.idle_scene}' 는 gohard 가 아니라 무시합니다.",
-                   f"IDLE_SCENE='{self.idle_scene}' is not gohard — ignored."))
+        if self.idle_scene not in (None, "clock", "gohard"):
+            log(tr(f"IDLE_SCENE='{self.idle_scene}' 는 clock / gohard 가 아니라 무시합니다.",
+                   f"IDLE_SCENE='{self.idle_scene}' is not clock / gohard — ignored."))
             self.idle_scene = None
         # 잘 자 1분 뒤 ~ ON_AT 밤 시간. sleep 이면 잠든 토끼, 맥을 쓰고 있으면 토끼가 "언제 잘 거야?"
         self.night_scene = (merged.get("NIGHT_SCENE") or "").strip().lower() or None
@@ -284,7 +284,7 @@ class Config:
 
     def scene_text(self, scene):
         return {"dino": "", "bunny": self.notice("bed"), "bye": self.notice("bye"),
-                "gohard": self.notice("gohard"), "sleep": "", "awake": self.notice("awake")}[scene]
+                "gohard": self.notice("gohard"), "clock": "", "sleep": "", "awake": self.notice("awake")}[scene]
 
     def off_at_on(self, day):
         """그날의 끄는 시각 (OFF_AT_ONCE 가 그날이면 그 값)."""
@@ -673,7 +673,7 @@ def in_window(cfg, now):
     return _between(cfg.on_at, off_at, now.hour * 60 + now.minute)
 
 
-SCENES = ("dino", "bunny", "bye", "gohard", "sleep", "awake")
+SCENES = ("dino", "bunny", "bye", "gohard", "clock", "sleep", "awake")
 BOARD_SCENE = {"sleep": "bye", "awake": "bunny"}   # 밤 장면은 보드의 잘자·토끼 그림을 빌려 쓴다
 BYE_S = 60                    # BED_OFF_AT 에 토끼가 "나도 잘게" 하고 있는 시간. 그 뒤 NIGHT_SCENE, 없으면 IDLE_SCENE
 AWAKE_IDLE_S = 120            # 밤에 맥 키보드·마우스를 이만큼 안 만졌으면 자는 것으로 본다
@@ -1076,8 +1076,9 @@ def main():
         if cfg.night_scene and cfg.bed_off_at is not None:
             log(tr(f"밤: 잘 자 뒤 ~ {hm(cfg.on_at)} 잠든 토끼, 맥을 쓰면 \"{cfg.notice('awake')}\"",
                    f"Night: after good night ~ {hm(cfg.on_at)} sleeping bunny, \"{cfg.notice('awake')}\" while the Mac is in use"))
-        log(tr("그 밖의 시간: 토끼가 Go hard!" if cfg.idle_scene else "그 밖의 시간: 화면 끔",
-               "Other times: bunny says Go hard!" if cfg.idle_scene else "Other times: screen off"))
+        idle_ko = {"clock": "가운데 큰 시계", "gohard": "토끼가 Go hard!"}.get(cfg.idle_scene, "화면 끔")
+        idle_en = {"clock": "big clock", "gohard": "bunny says Go hard!"}.get(cfg.idle_scene, "screen off")
+        log(tr(f"그 밖의 시간: {idle_ko}", f"Other times: {idle_en}"))
     elif not demo:
         log(tr(f"스케줄 무시, 바로 켬. 버스 정보는 {cfg.poll_s}초마다",
                f"Ignoring the schedule, screen on now. Bus poll every {cfg.poll_s}s"))

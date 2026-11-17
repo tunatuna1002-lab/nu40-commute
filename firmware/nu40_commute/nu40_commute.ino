@@ -22,7 +22,7 @@
       S|<state>|<arrive_s>|<speed>|<leave_s>|<bottom_left>|<bottom_right>|<msg>   화면 상태 (가장 자주 옴)
       N|<text>        안내 화면 (예: 탈 버스 없음)
       Z|<text>        잠자는 화면 (PC 가 멈출 때. 글자가 비면 한글/영어 두 줄)
-      A|<scene>|<text>[|<HH:MM>] 장면 화면 (dino / bunny / bye / gohard), 넷째 칸은 오른쪽 위 시계
+      A|<scene>|<text>[|<HH:MM>] 장면 화면 (dino / bunny / bye / gohard / clock), 넷째 칸은 시계
       P|on / P|off    화면 켜기 / 끄기 (ON_AT~OFF_AT 스케줄, 촬영용 지연 시작)
       M|demo / M|live 모드 표시 (LED2 로만 표시, 화면엔 안 그림)
     보드 → PC
@@ -98,6 +98,8 @@ static const int16_t BUNNY_TEXT_Y  = 36;    // 토끼 말풍선 안 글자 윗�
 static const int16_t BYE_GROUND_Y  = 38;    // 잘자 화면 땅 줄
 static const int16_t BYE_BUNNY_X   = 48;    // 잠든 토끼 왼쪽 끝 x
 static const int16_t BYE_TEXT_Y    = 46;    // 잘자 화면 아래 글자 윗줄
+static const int16_t BIGCLOCK_SCALE = 4;   // 큰 시계 장면: 글자를 몇 배로 키우나
+static const int16_t BIGCLOCK_Y    = 4;     // 큰 시계 글자 윗줄 (키운 픽셀은 y+8 부터 40줄이라 가운데 12~51)
 static const int16_t CLOCK_Y       = -2;    // 장면 화면 시계 글자 윗줄 (글자 픽셀은 y+2 부터라 맨 윗줄 0 부터 찍힌다)
 static const int16_t GOHARD_X      = 3;     // 응원 토끼 기준 왼쪽 끝 x
 static const int16_t GOHARD_Y      = 8;     // 응원 토끼 기준 윗줄 y
@@ -516,7 +518,7 @@ enum ScreenMode { MODE_SLEEP, MODE_NOTICE, MODE_BOARD, MODE_SCENE };
 
 static ScreenMode mode = MODE_SLEEP;
 static char     sleepText[64] = "";        // 잠자는 화면 글자. 비어 있으면 BOOT_LINE_KO / BOOT_LINE_EN 두 줄
-static int8_t   sceneIdx      = 0;         // 장면 번호: 0 dino, 1 bunny, 2 bye, 3 gohard
+static int8_t   sceneIdx      = 0;         // 장면 번호: 0 dino, 1 bunny, 2 bye, 3 gohard, 4 clock
 static char     sceneText[64] = "";        // 장면 화면 글자 (A| 줄)
 static char     sceneClock[6] = "";        // 장면 화면 오른쪽 위 시계 (A| 줄 넷째 칸, HH:MM). 비면 안 그린다
 static const uint32_t PC_SILENT_MS = 30000; // PC 는 5초(데모 2초)마다 보낸다. 이만큼 조용하면 PC 가 멈춘 것으로 본다
@@ -732,6 +734,7 @@ int8_t sceneIndex(const char* s) {
   if (strcmp(s, "bunny")  == 0) return 1;
   if (strcmp(s, "bye")    == 0) return 2;
   if (strcmp(s, "gohard") == 0) return 3;
+  if (strcmp(s, "clock")  == 0) return 4;
   return -1;
 }
 
@@ -1009,6 +1012,39 @@ void drawBye() {
   drawClock(SCREEN_WIDTH - 5 + dx, CLOCK_Y + dy);       // 시계도 같이 움직인다 (dx -4..+4)
 }
 
+// 큰 시계 장면 (A|clock||<HH:MM>) — preview.py render_scene("clock") 와 같다
+// 시계 글자를 BIGCLOCK_SCALE 배로 키워 가운데에 그린다. 콜론은 1초마다 깜빡인다.
+// 오래 켜 두므로 2의 거듭제곱 주기(1024틱·8192틱)로 가로·세로 -8..+8 픽셀을 천천히 움직여 번인을 막는다.
+void drawBigClock() {
+  uint8_t px = (tick >> 5) & 31;
+  uint8_t py = (tick >> 8) & 31;
+  int16_t dx = ((px <= 16) ? (int16_t)px : (int16_t)(32 - px)) - 8;
+  int16_t dy = ((py <= 16) ? (int16_t)py : (int16_t)(32 - py)) - 8;
+  bool colon = (tick / 5) % 2 == 0;
+
+  int16_t x = (SCREEN_WIDTH - textWidth(sceneClock) * BIGCLOCK_SCALE) / 2 + dx;
+  int16_t y = BIGCLOCK_Y + dy;
+  const char* text = sceneClock;
+  while (*text != '\0') {
+    uint8_t used;
+    uint32_t code = utf8Next(text, &used);
+    text += used;
+    const CFontGlyph* g = findGlyph(code);
+    if (g == NULL) { x += 4 * BIGCLOCK_SCALE; continue; }
+    if (code != ':' || colon) {
+      for (uint8_t row = 0; row < g->h; row++) {
+        uint16_t bits = CFONT_BITS[g->offset + row];
+        for (uint8_t col = 0; col < g->w; col++) {
+          if (!(bits & (0x8000 >> col))) continue;
+          int16_t bx = x + (g->xoff + col) * BIGCLOCK_SCALE, by = y + (g->yoff + row) * BIGCLOCK_SCALE;
+          for (int16_t k = 0; k < BIGCLOCK_SCALE; k++) display.drawFastHLine(bx, by + k, BIGCLOCK_SCALE, SSD1306_WHITE);
+        }
+      }
+    }
+    x += g->advance * BIGCLOCK_SCALE;
+  }
+}
+
 // 응원 장면 (A|gohard|<text>) — preview.py render_scene("gohard") 와 같다
 // 오랜 시간 켜 두므로 2의 거듭제곱 주기(64틱·1024틱)로 전체 구도를 천천히 이동시켜 번인을 막는다.
 void drawGoHard() {
@@ -1058,7 +1094,8 @@ void drawScreen() {
     if (sceneIdx == 0)      drawDino();
     else if (sceneIdx == 1) drawBunny();
     else if (sceneIdx == 2) drawBye();
-    else                    drawGoHard();
+    else if (sceneIdx == 3) drawGoHard();
+    else                    drawBigClock();
     display.display();
     return;
   }

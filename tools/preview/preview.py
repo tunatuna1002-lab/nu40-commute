@@ -71,7 +71,9 @@ GOHARD_BUBBLE = (40, 20, 113, 34)    # 응원 말풍선 (x0, y0, x1, y1)
 GOHARD_TEXT_Y = 22                   # 응원 말풍선 안 글자 윗줄
 CLOCK_Y = -2                         # 장면 화면 시계 글자 윗줄 (갈무리 픽셀은 y+2 부터라 맨 윗줄 0 부터 찍힌다)
 CLOCK_MAX = 5                        # 시계 칸 최대 글자 수 (HH:MM). 더 길면 그리지 않는다
-SAMPLE_CLOCK = {"dino": "10:30", "bunny": "22:30", "bye": "00:00", "gohard": "18:00"}   # 시안 그림의 시계 (그 장면이 나오는 시각)
+BIGCLOCK_SCALE = 4                   # 큰 시계 장면: 갈무리 글자를 몇 배로 키우나
+BIGCLOCK_Y = 4                       # 큰 시계 글자 윗줄 (키운 픽셀은 y+8 부터 40줄이라 가운데 12~51)
+SAMPLE_CLOCK = {"dino": "10:30", "bunny": "22:30", "bye": "00:00", "gohard": "18:00", "clock": "18:00"}   # 시안 그림의 시계 (그 장면이 나오는 시각)
 
 # ── 픽셀 그림 (# = 켜진 픽셀) ─────────────────────────────
 BUS = """
@@ -701,12 +703,39 @@ def draw_clock(d, clock, right, y):
         d.text((right - text_w(clock), y), clock, font=GALMURI, fill=1)
 
 
+def big_char(img, x, y, ch, scale):
+    """글자 하나를 scale 배로 키워 (x, y) 에 그린다. 펌웨어 drawBigClock() 의 글자 그리기와 같다."""
+    w = text_w(ch)
+    small = Image.new("1", (w + 8, 16), 0)
+    ImageDraw.Draw(small).text((0, 0), ch, font=GALMURI, fill=1)
+    d = ImageDraw.Draw(img)
+    for sy in range(16):
+        for sx in range(w + 8):
+            if small.getpixel((sx, sy)):
+                d.rectangle((x + sx * scale, y + sy * scale, x + sx * scale + scale - 1, y + sy * scale + scale - 1), fill=1)
+
+
 def render_scene(scene, text="", tick=0, clock=""):
-    """장면 화면 (A| 줄). 펌웨어 drawDino() / drawBunny() / drawBye() / drawGoHard() 와 픽셀 단위로 같다."""
-    if scene not in ("dino", "bunny", "bye", "gohard"):
+    """장면 화면 (A| 줄). 펌웨어 drawDino() / drawBunny() / drawBye() / drawGoHard() / drawBigClock() 와 픽셀 단위로 같다."""
+    if scene not in ("dino", "bunny", "bye", "gohard", "clock"):
         raise ValueError(f"모르는 장면: {scene}")
     img = Image.new("1", (W, H), 0)
     d = ImageDraw.Draw(img)
+
+    if scene == "clock":
+        # 큰 시계: HH:MM 을 4배로 키워 가운데에. 콜론은 1초마다 깜빡이고, 번인 방지로 천천히 움직인다
+        px = (tick >> 5) & 31
+        py = (tick >> 8) & 31
+        dx = (px if px <= 16 else (32 - px)) - 8
+        dy = (py if py <= 16 else (32 - py)) - 8
+        colon = (tick // 5) % 2 == 0
+        if clock:
+            x = (W - text_w(clock) * BIGCLOCK_SCALE) // 2 + dx
+            for ch in clock:
+                if ch != ":" or colon:
+                    big_char(img, x, BIGCLOCK_Y + dy, ch, BIGCLOCK_SCALE)
+                x += text_w(ch) * BIGCLOCK_SCALE
+        return img
 
     if scene == "dino":
         # 낮 배경: 해 + 구름 두 점 + 풀포기 + 땅 줄과 자갈
@@ -962,6 +991,8 @@ def main():
             OUT / ("9_잘자.png" if lang == "ko" else "en_9_bye.png"))
         to_screen(render_scene("gohard", MESSAGES_BY_LANG[lang]["gohard"], clock=SAMPLE_CLOCK["gohard"])).save(
             OUT / ("10_gohard.png" if lang == "ko" else "en_10_gohard.png"))
+        to_screen(render_scene("clock", "", clock=SAMPLE_CLOCK["clock"])).save(
+            OUT / ("11_시계.png" if lang == "ko" else "en_11_clock.png"))
     # 펌웨어 부팅 화면 (두 언어 공통) = 두 줄짜리 잠자는 화면. 움직임은 sleep.gif
     to_screen(render_boot()).save(OUT / "0_boot.png")
     frames = [to_screen(render_sleep("", tick=i), 4) for i in range(40)]
@@ -975,6 +1006,8 @@ def main():
     bye_frames[0].save(OUT / "bye.gif", save_all=True, append_images=bye_frames[1:], duration=200, loop=0)
     gohard_frames = [to_screen(render_scene("gohard", MESSAGES_BY_LANG["en"]["gohard"], tick=i, clock=SAMPLE_CLOCK["gohard"]), 4) for i in range(40)]
     gohard_frames[0].save(OUT / "gohard.gif", save_all=True, append_images=gohard_frames[1:], duration=200, loop=0)
+    clock_frames = [to_screen(render_scene("clock", "", tick=i, clock=SAMPLE_CLOCK["clock"]), 4) for i in range(20)]
+    clock_frames[0].save(OUT / "clock.gif", save_all=True, append_images=clock_frames[1:], duration=200, loop=0)
     return 0
 
 
