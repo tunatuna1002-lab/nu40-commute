@@ -99,7 +99,7 @@ static const int16_t BYE_GROUND_Y  = 38;    // 잘자 화면 땅 줄
 static const int16_t BYE_BUNNY_X   = 48;    // 잠든 토끼 왼쪽 끝 x
 static const int16_t BYE_TEXT_Y    = 46;    // 잘자 화면 아래 글자 윗줄
 static const int16_t BIGCLOCK_SCALE = 4;   // 큰 시계 장면: 글자를 몇 배로 키우나
-static const int16_t BIGCLOCK_Y    = 4;     // 큰 시계 글자 윗줄 (키운 픽셀은 y+8 부터 40줄이라 가운데 12~51)
+static const int16_t BIGCLOCK_Y    = 6;     // 큰 시계 글자 윗줄 (숫자 픽셀은 y+8 부터 36줄이라 가운데 14~49)
 static const int16_t CLOCK_Y       = -2;    // 장면 화면 시계 글자 윗줄 (글자 픽셀은 y+2 부터라 맨 윗줄 0 부터 찍힌다)
 static const int16_t GOHARD_X      = 3;     // 응원 토끼 기준 왼쪽 끝 x
 static const int16_t GOHARD_Y      = 8;     // 응원 토끼 기준 윗줄 y
@@ -1014,12 +1014,13 @@ void drawBye() {
 
 // 큰 시계 장면 (A|clock||<HH:MM>) — preview.py render_scene("clock") 와 같다
 // 시계 글자를 BIGCLOCK_SCALE 배로 키워 가운데에 그린다. 콜론은 1초마다 깜빡인다.
-// 오래 켜 두므로 2의 거듭제곱 주기(1024틱·8192틱)로 가로·세로 -8..+8 픽셀을 천천히 움직여 번인을 막는다.
+// 오래 켜 두므로 2의 거듭제곱 주기(1024틱·8192틱)로 가로·세로 -4..+4 픽셀을 천천히 움직여 번인을 막는다.
+// 켜진 직후(tick 0)에는 이동 0, 곧 가운데에서 시작한다.
 void drawBigClock() {
-  uint8_t px = (tick >> 5) & 31;
-  uint8_t py = (tick >> 8) & 31;
-  int16_t dx = ((px <= 16) ? (int16_t)px : (int16_t)(32 - px)) - 8;
-  int16_t dy = ((py <= 16) ? (int16_t)py : (int16_t)(32 - py)) - 8;
+  uint8_t px = ((tick >> 6) + 4) & 15;
+  uint8_t py = ((tick >> 9) + 4) & 15;
+  int16_t dx = ((px <= 8)  ? (int16_t)px : (int16_t)(16 - px)) - 4;
+  int16_t dy = ((py <= 8)  ? (int16_t)py : (int16_t)(16 - py)) - 4;
   bool colon = (tick / 5) % 2 == 0;
 
   int16_t x = (SCREEN_WIDTH - textWidth(sceneClock) * BIGCLOCK_SCALE) / 2 + dx;

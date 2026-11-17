@@ -72,7 +72,7 @@ GOHARD_TEXT_Y = 22                   # 응원 말풍선 안 글자 윗줄
 CLOCK_Y = -2                         # 장면 화면 시계 글자 윗줄 (갈무리 픽셀은 y+2 부터라 맨 윗줄 0 부터 찍힌다)
 CLOCK_MAX = 5                        # 시계 칸 최대 글자 수 (HH:MM). 더 길면 그리지 않는다
 BIGCLOCK_SCALE = 4                   # 큰 시계 장면: 갈무리 글자를 몇 배로 키우나
-BIGCLOCK_Y = 4                       # 큰 시계 글자 윗줄 (키운 픽셀은 y+8 부터 40줄이라 가운데 12~51)
+BIGCLOCK_Y = 6                       # 큰 시계 글자 윗줄 (숫자 픽셀은 y+8 부터 36줄이라 가운데 14~49)
 SAMPLE_CLOCK = {"dino": "10:30", "bunny": "22:30", "bye": "00:00", "gohard": "18:00", "clock": "18:00"}   # 시안 그림의 시계 (그 장면이 나오는 시각)
 
 # ── 픽셀 그림 (# = 켜진 픽셀) ─────────────────────────────
@@ -724,10 +724,10 @@ def render_scene(scene, text="", tick=0, clock=""):
 
     if scene == "clock":
         # 큰 시계: HH:MM 을 4배로 키워 가운데에. 콜론은 1초마다 깜빡이고, 번인 방지로 천천히 움직인다
-        px = (tick >> 5) & 31
-        py = (tick >> 8) & 31
-        dx = (px if px <= 16 else (32 - px)) - 8
-        dy = (py if py <= 16 else (32 - py)) - 8
+        px = ((tick >> 6) + 4) & 15        # +4: 켜진 직후(tick 0)에 이동 0 = 가운데에서 시작
+        py = ((tick >> 9) + 4) & 15
+        dx = (px if px <= 8 else (16 - px)) - 4    # -4..+4
+        dy = (py if py <= 8 else (16 - py)) - 4    # -4..+4
         colon = (tick // 5) % 2 == 0
         if clock:
             x = (W - text_w(clock) * BIGCLOCK_SCALE) // 2 + dx
