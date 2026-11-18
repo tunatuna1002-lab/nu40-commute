@@ -413,7 +413,7 @@ class Planner:
         return next((b for b in buses if b.arrive >= earliest), None)
 
     def tick(self):
-        """돌려주는 값: ('frame', Frame) 또는 ('notice', 문구)."""
+        """돌려주는 값: ('frame', Frame), ('notice', 문구), 또는 ('scene', 장면 이름)."""
         now = self.clock()
         buses = self.buses_for(now.date())
         if buses is None:
@@ -439,7 +439,8 @@ class Planner:
             self.missed_at = None
             self.state = None
             if self.current is None:
-                return "notice", self.cfg.notice("no_bus")
+                # 탈 버스가 없으면 문구 대신 가운데 큰 시계
+                return "scene", "clock"
             log(tr(f"탈 버스: {self.current}", f"Next catchable bus: {self.current}"))
         elif self.missed_at is None:
             # 따라가던 버스보다 확실히 먼저 오는 '탈 수 있는' 버스가 생기면 그 버스로 바꾼다 (다른 노선, 늦어진 버스)
@@ -1118,6 +1119,17 @@ def main():
             except Exception as e:
                 log(tr(f"화면 저장 실패: {type(e).__name__}", f"Could not save screen: {type(e).__name__}"))
 
+    def send_scene(scene, now_real, keepalive, why=""):
+        nonlocal last_scene, last_frame, last_notice, last_send
+        # 넷째 칸은 보드 시계. 분이 바뀌면 줄이 달라져 바로 다시 보낸다
+        line = f"A|{BOARD_SCENE.get(scene, scene)}|{cfg.scene_text(scene)}|{datetime.now():%H:%M}"
+        if line != last_scene or now_real - last_send >= keepalive:
+            link.send(line)
+            render(line)
+            if last_scene is None or line.rsplit("|", 1)[0] != last_scene.rsplit("|", 1)[0]:
+                log(tr(f"장면: {scene}{why}", f"Scene: {scene}{why}"))
+            last_scene, last_frame, last_notice, last_send = line, None, None, now_real
+
     # 보드 READY 를 잠깐 기다린다 (이미 켜져 있던 보드는 안 보냄)
     if not args.dry_run:
         deadline = time.time() + 3
@@ -1194,20 +1206,15 @@ def main():
 
             # 3) 버스 시간대 밖의 장면 (공룡, 토끼, Go hard, 밤). 보드가 혼자 움직이고, API 는 부르지 않는다
             if scene in SCENES:
-                # 넷째 칸은 보드 오른쪽 위 시계. 분이 바뀌면 줄이 달라져 바로 다시 보낸다
-                line = f"A|{BOARD_SCENE.get(scene, scene)}|{cfg.scene_text(scene)}|{datetime.now():%H:%M}"
-                if line != last_scene or now_real - last_send >= keepalive:
-                    link.send(line)
-                    render(line)
-                    if last_scene is None or line.rsplit("|", 1)[0] != last_scene.rsplit("|", 1)[0]:
-                        log(tr(f"장면: {scene}", f"Scene: {scene}"))
-                    last_scene, last_frame, last_notice, last_send = line, None, None, now_real
+                send_scene(scene, now_real, keepalive)
                 time.sleep(1.0)
                 continue
 
             # 4) 상태 계산 → 보드로
             kind, payload = planner.tick()
-            if kind == "notice":
+            if kind == "scene":
+                send_scene(payload, now_real, keepalive, tr(" (탈 버스 없음)", " (no bus to catch)"))
+            elif kind == "notice":
                 if payload != last_notice or now_real - last_send >= keepalive:
                     line = f"N|{payload}"
                     link.send(line)

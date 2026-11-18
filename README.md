@@ -75,7 +75,7 @@ PC의 파이썬 프로그램이 경기도 버스 도착정보를 받아 **지금
 
 | 시간 | 화면 |
 |---|---|
-| 06:30~09:30 | 버스 |
+| 06:30~09:30 | 버스. 걸어서 탈 버스가 없으면 가운데 큰 시계 |
 | 09:30~13:00 | 공룡이 왔다 갔다 |
 | 13:00~22:00 | 가운데 큰 시계 |
 | 22:00~00:00 | 토끼가 "Time to sleep!" |
@@ -242,7 +242,7 @@ README.md와 host/config.example.env를 읽을 수 있으면 먼저 읽어.
  - "not JSON" / "JSON이 아닙니다": 활용신청이 안 됐거나 키 활성화 전.
  - "Stop number ... was not found": 번호 오타이거나
    경기도 버스가 서지 않는 정류장.
- - "No bus to catch": 지금 걸어서 탈 수 있는 버스가 없음 (정상일 수 있음).
+ - "Scene: clock (no bus to catch)": 지금 걸어서 탈 수 있는 버스가 없어 가운데 큰 시계를 띄움 (정상일 수 있음).
  - "No board found": USB 케이블(데이터용인지), --port로 포트 지정.
  - 그 밖에는 README의 "자주 나는 문제" 표를 봐.
 ```
@@ -402,7 +402,7 @@ host/autostart_mac.sh uninstall   # 자동 시작 끄기
 | 화면이 안 켜짐 | SDA/SCL을 바꿔 꽂아 보기, VCC가 3V3인지, 점퍼선 교체. 시리얼 모니터에 `ERR\|No OLED`가 반복되면 배선 문제 |
 | 잠자는 화면에서 안 바뀜 | PC 프로그램이 안 돌거나 포트가 다름. 아두이노 시리얼 모니터를 닫았는지 확인. 자동 시작이면 `host/autostart_mac.sh status`로 기록 확인 |
 | 화면이 꺼져 있음 | `ON_AT`~`OFF_AT` 밖이면 정상. S1을 누르거나 `--always-on` |
-| `No bus to catch` | 걸어서 탈 수 있는 버스가 없음 (너무 가까이 왔거나, 늦은 밤이라 운행이 없음) |
+| 알림 시간인데 가운데 큰 시계만 나옴 | 걸어서 탈 수 있는 버스가 없음 (너무 가까이 왔거나, 운행이 없음). 로그에 `Scene: clock (no bus to catch)` |
 | `... response is not JSON` | 그 API의 활용신청이 안 됐거나, 키가 아직 활성화 전이거나, 하루 한도 초과 |
 | `Stop number … was not found` | 정류장 번호 오타, 또는 경기도 버스가 서지 않는 정류장 |
 | `The bus response has no result header` | 정류소 ID가 틀림. `BUS_STATION_ID`를 비우고 `BUS_STOP_NO`로 다시 |
@@ -489,7 +489,7 @@ host/autostart_mac.sh uninstall   # 자동 시작 끄기
 | 줄 | 뜻 |
 |---|---|
 | `S\|state\|arrive_s\|speed\|leave_s\|bottom_left\|bottom_right\|msg` | 화면 상태. 아래 표 참고 |
-| `N\|text` | 안내 화면. `No bus to catch`, `Error, retrying...`, `Off hours` (한글: `탈 버스 없음`, `오류… 다시 시도 중`, `알림 시간 아님`) |
+| `N\|text` | 안내 화면. `Error, retrying...`, `Off hours` (한글: `오류… 다시 시도 중`, `알림 시간 아님`). 탈 버스가 없을 때는 안내 대신 `A\|clock\|\|HH:MM` 큰 시계를 보냅니다 |
 | `Z\|text` | 잠자는 화면 + 글자 한 줄. PC가 멈출 때 보냅니다 |
 | `A\|scene\|text\|HH:MM` | 장면 화면. `scene`은 `dino` / `bunny` / `bye` / `gohard` / `clock`. 마지막 칸은 시계(`clock`은 가운데 큰 시계, 나머지는 오른쪽 위)이고, 빼면 시계를 그리지 않습니다. 예: `A\|clock\|\|18:00`, `A\|gohard\|Go hard!\|21:48`, `A\|bye\|\|03:15` (잠든 토끼, 글자 없음) |
 | `P\|on` / `P\|off` | 화면 켜기 / 끄기 |
